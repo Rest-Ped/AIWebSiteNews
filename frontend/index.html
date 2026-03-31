@@ -12,91 +12,171 @@
             <p class="eyebrow">Railway + PostgreSQL</p>
             <h1>IDO SKILLS News</h1>
             <p class="subtitle">
-                Новостной сервис с реальной регистрацией, авторизацией и хранением интересов в базе данных.
+                Понятный интерфейс для регистрации, входа, сохранения интересов и получения новостей через API.
             </p>
         </header>
 
+        <div class="status-panel">
+            <div>
+                <div class="status-panel-label">Состояние</div>
+                <div id="session-state" class="session-state">Вы не вошли в аккаунт</div>
+            </div>
+            <div class="status-panel-hint">
+                Сначала зарегистрируйтесь или войдите, затем открывайте новости и сводку.
+            </div>
+        </div>
+
         <div class="tabs">
-            <button class="tab-btn active" onclick="showTab('profile', this)">Профиль</button>
-            <button class="tab-btn" onclick="showTab('news', this)">Новости</button>
-            <button class="tab-btn" onclick="showTab('digest', this)">Сводка</button>
-            <button class="tab-btn" onclick="showTab('settings', this)">Настройки</button>
+            <button class="tab-btn active" onclick="showTab('profile', this)">1. Аккаунт</button>
+            <button class="tab-btn" onclick="showTab('settings', this)">2. Интересы</button>
+            <button class="tab-btn" onclick="showTab('news', this)">3. Новости</button>
+            <button class="tab-btn" onclick="showTab('digest', this)">4. Сводка</button>
         </div>
 
         <section id="profile" class="tab-content active">
             <div class="panel-header">
-                <h2>Регистрация и вход</h2>
-                <p>Логин, пароль и интересы пользователя сохраняются в PostgreSQL.</p>
+                <h2>Аккаунт</h2>
+                <p>
+                    Здесь всё разделено на два понятных действия: регистрация нового пользователя и вход в уже существующий аккаунт.
+                </p>
             </div>
 
-            <div class="form-grid">
-                <div class="form-group">
-                    <label for="login">Логин</label>
-                    <input type="text" id="login" placeholder="Введите логин">
-                </div>
-                <div class="form-group">
-                    <label for="email">Email</label>
-                    <input type="email" id="email" placeholder="Введите email">
-                </div>
+            <div class="steps-grid">
+                <article class="step-card">
+                    <div class="step-number">1</div>
+                    <h3>Создать аккаунт</h3>
+                    <p>Введите логин, email и пароль. После регистрации вы автоматически войдёте в систему.</p>
+                </article>
+                <article class="step-card">
+                    <div class="step-number">2</div>
+                    <h3>Сохранить интересы</h3>
+                    <p>На вкладке “Интересы” укажите темы, чтобы новости фильтровались под пользователя.</p>
+                </article>
+                <article class="step-card">
+                    <div class="step-number">3</div>
+                    <h3>Получить данные</h3>
+                    <p>Откройте вкладки “Новости” и “Сводка”, чтобы получить персональную подборку и итоговый дайджест.</p>
+                </article>
             </div>
 
-            <div class="form-grid">
-                <div class="form-group">
-                    <label for="password">Пароль</label>
-                    <input type="password" id="password" placeholder="Минимум 6 символов">
-                </div>
-                <div class="form-group">
-                    <label for="threshold">Порог важности</label>
-                    <div class="range-row">
-                        <input type="range" id="threshold" min="1" max="10" value="6">
-                        <span id="threshold-value">6</span>
+            <div class="auth-layout">
+                <article class="form-card">
+                    <div class="card-header">
+                        <h3>Регистрация</h3>
+                        <p>Для нового пользователя</p>
                     </div>
+
+                    <div class="form-group">
+                        <label for="register-login">Логин</label>
+                        <input type="text" id="register-login" placeholder="Например: test_user">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="register-email">Email</label>
+                        <input type="email" id="register-email" placeholder="Например: user@mail.com">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="register-password">Пароль</label>
+                        <input type="password" id="register-password" placeholder="Минимум 6 символов">
+                    </div>
+
+                    <button class="btn-primary wide" onclick="registerUser()">Зарегистрироваться</button>
+                </article>
+
+                <article class="form-card">
+                    <div class="card-header">
+                        <h3>Вход</h3>
+                        <p>Для существующего пользователя</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="login-identifier">Логин или email</label>
+                        <input type="text" id="login-identifier" placeholder="Введите логин или email">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="login-password">Пароль</label>
+                        <input type="password" id="login-password" placeholder="Введите пароль">
+                    </div>
+
+                    <div class="action-row">
+                        <button class="btn-secondary wide" onclick="loginUser()">Войти</button>
+                        <button class="btn-ghost wide" onclick="logoutUser()">Выйти</button>
+                    </div>
+                </article>
+            </div>
+
+            <article class="account-card">
+                <div class="card-header">
+                    <h3>Текущий аккаунт</h3>
+                    <p>Здесь отображается пользователь, который сейчас авторизован.</p>
                 </div>
-            </div>
-
-            <div class="form-group">
-                <label for="interests">Интересы</label>
-                <textarea id="interests" placeholder="технологии, программирование, стартапы, безопасность"></textarea>
-            </div>
-
-            <div class="action-row">
-                <button class="btn-primary" onclick="registerUser()">Зарегистрироваться</button>
-                <button class="btn-secondary" onclick="loginUser()">Войти</button>
-                <button class="btn-ghost" onclick="logoutUser()">Выйти</button>
-            </div>
-
-            <div id="user-info" class="user-card hidden"></div>
-        </section>
-
-        <section id="news" class="tab-content">
-            <div class="panel-header">
-                <h2>Лента новостей</h2>
-                <p>Лента фильтруется по интересам пользователя, сохраненным в базе.</p>
-            </div>
-            <div class="action-row compact">
-                <button class="btn-primary" onclick="fetchNews()">Обновить новости</button>
-            </div>
-            <div id="news-list" class="news-list"></div>
-        </section>
-
-        <section id="digest" class="tab-content">
-            <div class="panel-header">
-                <h2>AI-сводка</h2>
-                <p>Сводка строится на основе сохраненных интересов и списка новостей.</p>
-            </div>
-            <div class="action-row compact">
-                <button class="btn-primary" onclick="getDigest()">Сгенерировать сводку</button>
-            </div>
-            <div id="digest-content" class="digest-content"></div>
+                <div id="user-info" class="account-card-body empty">
+                    Вы ещё не вошли в аккаунт.
+                </div>
+            </article>
         </section>
 
         <section id="settings" class="tab-content">
             <div class="panel-header">
-                <h2>Настройки</h2>
-                <p>Настройки профиля обновляются через API и записываются в PostgreSQL.</p>
+                <h2>Интересы и фильтр</h2>
+                <p>
+                    Эти данные сохраняются в базе и потом используются сайтом и ПК-приложением для выдачи результатов.
+                </p>
+            </div>
+
+            <div class="settings-card">
+                <div class="form-group">
+                    <label for="settings-interests">Интересы</label>
+                    <textarea id="settings-interests" placeholder="технологии, безопасность, стартапы, программирование"></textarea>
+                    <div class="field-hint">
+                        Пишите через запятую. Например: <code>технологии, безопасность, стартапы</code>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="settings-threshold">Порог важности новостей</label>
+                    <div class="range-row">
+                        <input type="range" id="settings-threshold" min="1" max="10" value="6">
+                        <span id="threshold-value">6</span>
+                    </div>
+                    <div class="field-hint">
+                        Чем выше значение, тем строже фильтрация новостей.
+                    </div>
+                </div>
+
+                <button class="btn-primary" onclick="saveSettings()">Сохранить интересы и фильтр</button>
+            </div>
+        </section>
+
+        <section id="news" class="tab-content">
+            <div class="panel-header">
+                <h2>Новости</h2>
+                <p>
+                    После входа нажмите кнопку ниже. Сервис возьмёт интересы из БД и вернёт подходящую ленту.
+                </p>
             </div>
             <div class="action-row compact">
-                <button class="btn-primary" onclick="saveSettings()">Сохранить настройки</button>
+                <button class="btn-primary" onclick="fetchNews()">Получить новости</button>
+            </div>
+            <div id="news-list" class="news-list empty-state">
+                Сначала войдите в аккаунт, затем запросите новости.
+            </div>
+        </section>
+
+        <section id="digest" class="tab-content">
+            <div class="panel-header">
+                <h2>Сводка</h2>
+                <p>
+                    Здесь формируется итоговая сводка по новостям, подобранным под интересы пользователя.
+                </p>
+            </div>
+            <div class="action-row compact">
+                <button class="btn-primary" onclick="getDigest()">Получить сводку</button>
+            </div>
+            <div id="digest-content" class="digest-content empty-state">
+                Сначала войдите в аккаунт, затем запросите сводку.
             </div>
         </section>
 

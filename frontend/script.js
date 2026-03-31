@@ -14,7 +14,7 @@ function showTab(tabId, button) {
     }
 }
 
-document.getElementById("threshold")?.addEventListener("input", function updateThreshold() {
+document.getElementById("settings-threshold")?.addEventListener("input", function updateThreshold() {
     document.getElementById("threshold-value").textContent = this.value;
 });
 
@@ -25,13 +25,27 @@ function splitInterests(value) {
         .filter(Boolean);
 }
 
-function getPayloadFromForm() {
+function getRegisterPayload() {
     return {
-        login: document.getElementById("login").value.trim(),
-        email: document.getElementById("email").value.trim(),
-        password: document.getElementById("password").value,
-        interests: splitInterests(document.getElementById("interests").value),
-        threshold: parseInt(document.getElementById("threshold").value, 10),
+        login: document.getElementById("register-login").value.trim(),
+        email: document.getElementById("register-email").value.trim(),
+        password: document.getElementById("register-password").value,
+        interests: splitInterests(document.getElementById("settings-interests").value),
+        threshold: parseInt(document.getElementById("settings-threshold").value, 10),
+    };
+}
+
+function getLoginPayload() {
+    return {
+        login: document.getElementById("login-identifier").value.trim(),
+        password: document.getElementById("login-password").value,
+    };
+}
+
+function getSettingsPayload() {
+    return {
+        interests: splitInterests(document.getElementById("settings-interests").value),
+        threshold: parseInt(document.getElementById("settings-threshold").value, 10),
     };
 }
 
@@ -47,39 +61,47 @@ function getAuthHeaders() {
 
 function ensureAuthorized() {
     if (!authToken || !currentUser) {
-        showStatus("Сначала войдите в аккаунт.", "error");
+        showStatus("Сначала выполните вход в аккаунт.", "error");
         return false;
     }
     return true;
 }
 
-function applyUserToForm(user) {
+function setSessionState(message, isActive) {
+    const stateNode = document.getElementById("session-state");
+    stateNode.textContent = message;
+    stateNode.className = isActive ? "session-state active" : "session-state";
+}
+
+function applyUserToUI(user) {
     currentUser = user;
-    document.getElementById("login").value = user.login || "";
-    document.getElementById("email").value = user.email || "";
-    document.getElementById("interests").value = (user.interests || []).join(", ");
-    document.getElementById("threshold").value = user.news_threshold || 6;
+    document.getElementById("register-login").value = user.login || "";
+    document.getElementById("register-email").value = user.email || "";
+    document.getElementById("settings-interests").value = (user.interests || []).join(", ");
+    document.getElementById("settings-threshold").value = user.news_threshold || 6;
     document.getElementById("threshold-value").textContent = user.news_threshold || 6;
+    document.getElementById("login-identifier").value = user.login || "";
     renderUserCard();
+    setSessionState(`Вы вошли как ${user.login}`, true);
 }
 
 function renderUserCard() {
     const container = document.getElementById("user-info");
     if (!currentUser) {
-        container.classList.add("hidden");
-        container.innerHTML = "";
+        container.className = "account-card-body empty";
+        container.textContent = "Вы ещё не вошли в аккаунт.";
         return;
     }
 
+    container.className = "account-card-body";
     container.innerHTML = `
-        <div class="user-card-title">Аккаунт подключен</div>
-        <div class="user-card-meta">
-            <span>Логин: <strong>${escapeHtml(currentUser.login || "-")}</strong></span>
-            <span>Email: <strong>${escapeHtml(currentUser.email || "-")}</strong></span>
-            <span>Интересы: <strong>${escapeHtml((currentUser.interests || []).join(", ") || "-")}</strong></span>
+        <div class="account-grid">
+            <div><span class="account-label">Логин</span><strong>${escapeHtml(currentUser.login || "-")}</strong></div>
+            <div><span class="account-label">Email</span><strong>${escapeHtml(currentUser.email || "-")}</strong></div>
+            <div><span class="account-label">Интересы</span><strong>${escapeHtml((currentUser.interests || []).join(", ") || "-")}</strong></div>
+            <div><span class="account-label">Порог</span><strong>${escapeHtml(String(currentUser.news_threshold || 6))}</strong></div>
         </div>
     `;
-    container.classList.remove("hidden");
 }
 
 function saveSession(token, user) {
@@ -87,7 +109,7 @@ function saveSession(token, user) {
     localStorage.setItem("authToken", token);
     if (user) {
         localStorage.setItem("userId", String(user.id));
-        applyUserToForm(user);
+        applyUserToUI(user);
     }
 }
 
@@ -96,21 +118,33 @@ function clearSession() {
     currentUser = null;
     localStorage.removeItem("authToken");
     localStorage.removeItem("userId");
+    document.getElementById("login-password").value = "";
+    document.getElementById("register-password").value = "";
     renderUserCard();
+    setSessionState("Вы не вошли в аккаунт", false);
 }
 
 async function handleApiResponse(response) {
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-        throw new Error(data.error || "Ошибка запроса");
+    const rawText = await response.text();
+    let data = {};
+
+    try {
+        data = rawText ? JSON.parse(rawText) : {};
+    } catch {
+        data = {};
     }
+
+    if (!response.ok) {
+        throw new Error(data.error || rawText || `Ошибка запроса (${response.status})`);
+    }
+
     return data;
 }
 
 async function registerUser() {
-    const payload = getPayloadFromForm();
+    const payload = getRegisterPayload();
     if (!payload.login || !payload.password) {
-        showStatus("Укажите логин и пароль.", "error");
+        showStatus("Для регистрации заполните логин и пароль.", "error");
         return;
     }
 
@@ -122,16 +156,16 @@ async function registerUser() {
         });
         const data = await handleApiResponse(response);
         saveSession(data.token, data.user);
-        showStatus("Регистрация прошла успешно.", "ok");
+        showStatus("Регистрация прошла успешно. Аккаунт создан и вход выполнен автоматически.", "ok");
     } catch (error) {
         showStatus(error.message, "error");
     }
 }
 
 async function loginUser() {
-    const payload = getPayloadFromForm();
+    const payload = getLoginPayload();
     if (!payload.login || !payload.password) {
-        showStatus("Введите логин и пароль.", "error");
+        showStatus("Для входа укажите логин или email и пароль.", "error");
         return;
     }
 
@@ -139,14 +173,11 @@ async function loginUser() {
         const response = await fetch(`${API_BASE}/auth/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                login: payload.login,
-                password: payload.password,
-            }),
+            body: JSON.stringify(payload),
         });
         const data = await handleApiResponse(response);
         saveSession(data.token, data.user);
-        showStatus("Вход выполнен.", "ok");
+        showStatus("Вход выполнен успешно.", "ok");
     } catch (error) {
         showStatus(error.message, "error");
     }
@@ -154,7 +185,7 @@ async function loginUser() {
 
 async function logoutUser() {
     clearSession();
-    showStatus("Сессия очищена.", "ok");
+    showStatus("Вы вышли из аккаунта.", "ok");
 }
 
 async function fetchNews() {
@@ -162,7 +193,7 @@ async function fetchNews() {
         return;
     }
 
-    showStatus("Загрузка новостей...", "ok");
+    showStatus("Запрашиваю новости по интересам из базы...", "ok");
     try {
         const response = await fetch(`${API_BASE}/news/fetch`, {
             method: "POST",
@@ -174,7 +205,7 @@ async function fetchNews() {
         });
         const data = await handleApiResponse(response);
         renderNews(data.news);
-        showStatus(`Загружено ${data.count} новостей.`, "ok");
+        showStatus(`Получено ${data.count} новостей.`, "ok");
     } catch (error) {
         showStatus(error.message, "error");
     }
@@ -183,10 +214,12 @@ async function fetchNews() {
 function renderNews(newsList) {
     const container = document.getElementById("news-list");
     if (!newsList || newsList.length === 0) {
-        container.innerHTML = "<p>Нет новостей для отображения.</p>";
+        container.className = "news-list empty-state";
+        container.textContent = "Под ваши интересы новости пока не найдены.";
         return;
     }
 
+    container.className = "news-list";
     container.innerHTML = newsList
         .map((news) => `
             <article class="news-item">
@@ -209,15 +242,17 @@ async function getDigest() {
         return;
     }
 
-    showStatus("Генерация сводки...", "ok");
+    showStatus("Формирую сводку по новостям...", "ok");
     try {
         const response = await fetch(`${API_BASE}/users/me/digest`, {
             method: "GET",
             headers: getAuthHeaders(),
         });
         const data = await handleApiResponse(response);
-        document.getElementById("digest-content").textContent = data.digest || "Сводка пока пуста.";
-        showStatus(`Сводка создана на основе ${data.news_count} новостей.`, "ok");
+        const digestNode = document.getElementById("digest-content");
+        digestNode.className = "digest-content";
+        digestNode.textContent = data.digest || "Сводка пока пуста.";
+        showStatus(`Сводка готова. Использовано новостей: ${data.news_count}.`, "ok");
     } catch (error) {
         showStatus(error.message, "error");
     }
@@ -228,7 +263,7 @@ async function saveSettings() {
         return;
     }
 
-    const payload = getPayloadFromForm();
+    const payload = getSettingsPayload();
     try {
         const response = await fetch(`${API_BASE}/users/me/interests`, {
             method: "PUT",
@@ -236,14 +271,11 @@ async function saveSettings() {
                 "Content-Type": "application/json",
                 ...getAuthHeaders(),
             },
-            body: JSON.stringify({
-                interests: payload.interests,
-                threshold: payload.threshold,
-            }),
+            body: JSON.stringify(payload),
         });
         const data = await handleApiResponse(response);
-        applyUserToForm(data.user);
-        showStatus("Настройки сохранены в базе.", "ok");
+        applyUserToUI(data.user);
+        showStatus("Интересы и порог сохранены в базе данных.", "ok");
     } catch (error) {
         showStatus(error.message, "error");
     }
@@ -262,6 +294,9 @@ function showStatus(message, type) {
 }
 
 async function restoreSession() {
+    renderUserCard();
+    setSessionState("Вы не вошли в аккаунт", false);
+
     if (!authToken) {
         return;
     }
@@ -272,11 +307,11 @@ async function restoreSession() {
             headers: getAuthHeaders(),
         });
         const data = await handleApiResponse(response);
-        applyUserToForm(data.user);
+        applyUserToUI(data.user);
         showStatus("Сессия восстановлена.", "ok");
     } catch (error) {
         clearSession();
-        showStatus("Сохраненная сессия истекла, войдите снова.", "error");
+        showStatus("Сохранённая сессия истекла. Выполните вход снова.", "error");
     }
 }
 
