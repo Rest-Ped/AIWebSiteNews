@@ -1,0 +1,20 @@
+{
+    "sample_news": [
+        {
+            "title": "Новая версия LLaMa 3.2 выпущена",
+            "url": "https://example.com/news/1",
+            "source": "Tech News",
+            "published_at": "2026-03-30T10:00:00Z",
+            "content": "Meta выпустила новую версию языковой модели...",
+            "importance_score": 8
+        },
+        {
+            "title": "Прорыв в области квантовых вычислений",
+            "url": "https://example.com/news/2",
+            "source": "Science Daily",
+            "published_at": "2026-03-30T09:00:00Z",
+            "content": "Исследователи достигли нового рекорда...",
+            "importance_score": 7
+        }
+    ]
+}
