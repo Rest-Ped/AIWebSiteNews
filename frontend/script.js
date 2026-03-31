@@ -2,7 +2,9 @@
  * IDO SKILLS News - Frontend JavaScript
  */
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = window.location.protocol === 'file:'
+    ? 'http://localhost:5000/api'
+    : `${window.location.origin}/api`;
 let currentUserId = null;
 
 // Переключение вкладок
