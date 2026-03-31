@@ -21,7 +21,7 @@ WORKDIR /app/backend
 ENV PORT=8080 \
     BACKEND_PORT=8080 \
     DEBUG=false \
-    DATABASE_URL=sqlite:///instance/database.db \
+    DATABASE_URL=sqlite:///database.db \
     SECRET_KEY=change-this-in-production
 
 EXPOSE 8080

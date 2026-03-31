@@ -60,7 +60,7 @@ start_app() {
   export BACKEND_PORT="${BACKEND_PORT:-$PORT}"
   export DEBUG="${DEBUG:-false}"
   export SECRET_KEY="${SECRET_KEY:-change-this-in-production}"
-  export DATABASE_URL="${DATABASE_URL:-sqlite:///instance/database.db}"
+  export DATABASE_URL="${DATABASE_URL:-sqlite:///database.db}"
   export PYTHONUNBUFFERED=1
   export PYTHONPATH="$BACKEND_DIR${PYTHONPATH:+:$PYTHONPATH}"
 

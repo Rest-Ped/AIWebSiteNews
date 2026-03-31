@@ -351,8 +351,8 @@ def serve_static(path):
 
 if __name__ == '__main__':
     print("=" * 50)
-    print("🚀 IDO SKILLS News запущен!")
-    print(f"📡 http://localhost:{config.BACKEND_PORT}")
-    print("🏆 Конкурсная версия")
+    print("IDO SKILLS News started")
+    print(f"http://localhost:{config.BACKEND_PORT}")
+    print("Contest build")
     print("=" * 50)
     app.run(host='0.0.0.0', port=config.BACKEND_PORT, debug=config.DEBUG)
