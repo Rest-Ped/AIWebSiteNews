@@ -75,6 +75,18 @@ start_app() {
     app:app
 }
 
+start_bot() {
+  activate_venv
+
+  export PYTHONUNBUFFERED=1
+  export PYTHONPATH="$BACKEND_DIR${PYTHONPATH:+:$PYTHONPATH}"
+
+  cd "$BACKEND_DIR"
+
+  log "Starting Railway bot worker"
+  exec python telegram_bot.py
+}
+
 case "$MODE" in
   build)
     bootstrap
@@ -82,8 +94,11 @@ case "$MODE" in
   start)
     start_app
     ;;
+  start-bot)
+    start_bot
+    ;;
   *)
-    log "Usage: bash ./setup.sh [build|start]"
+    log "Usage: bash ./setup.sh [build|start|start-bot]"
     exit 1
     ;;
 esac

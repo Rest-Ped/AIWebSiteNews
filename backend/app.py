@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config import config
 from database import News, User, UserNews, db, init_db, normalize_interests
+from services.assistant_service import AssistantService
 from services.llm_service import LLMService
 from services.news_fetcher import NewsFetcher
 from services.summarizer import Summarizer
@@ -65,6 +66,7 @@ init_db(app)
 llm_service = LLMService()
 news_fetcher = NewsFetcher()
 summarizer = Summarizer()
+assistant_service = AssistantService()
 mock_llm = MockLLM()
 serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"], salt=config.AUTH_TOKEN_SALT)
 
@@ -77,8 +79,59 @@ def json_error(message, status_code=400):
     return jsonify({"error": message}), status_code
 
 
+def parse_threshold(data):
+    raw_value = data.get("threshold") or data.get("news_threshold") or config.NEWS_THRESHOLD
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        value = config.NEWS_THRESHOLD
+    return max(1, min(10, value))
+
+
 def create_auth_token(user: User) -> str:
     return serializer.dumps({"user_id": user.id, "login": user.login})
+
+
+def find_user_by_identifier(identifier: str):
+    identifier = (identifier or "").strip()
+    if not identifier:
+        return None
+    return User.query.filter(
+        or_(
+            func.lower(User.login) == identifier.lower(),
+            func.lower(User.email) == identifier.lower(),
+        )
+    ).first()
+
+
+def get_user_by_telegram_id_value(telegram_id):
+    try:
+        parsed_id = int(telegram_id)
+    except (TypeError, ValueError):
+        return None
+    return User.query.filter_by(telegram_id=parsed_id).first()
+
+
+def link_telegram_account(user: User, data):
+    telegram_id = data.get("telegram_id")
+    if not telegram_id:
+        return user, None
+
+    try:
+        parsed_id = int(telegram_id)
+    except (TypeError, ValueError):
+        return None, json_error("Telegram ID is invalid.")
+
+    existing = get_user_by_telegram_id_value(parsed_id)
+    if existing and existing.id != user.id:
+        return None, json_error("Telegram account is already linked to another user.", 409)
+
+    user.link_telegram(
+        parsed_id,
+        username=(data.get("telegram_username") or "").strip() or None,
+        chat_id=data.get("telegram_chat_id"),
+    )
+    return user, None
 
 
 def extract_token():
@@ -131,6 +184,12 @@ def get_user_from_request_or_token(required=True):
             user = db.session.get(User, int(user_id))
         except (TypeError, ValueError):
             user = None
+        if user:
+            return user, None
+
+    telegram_id = data.get("telegram_id") or request.args.get("telegram_id")
+    if telegram_id:
+        user = get_user_by_telegram_id_value(telegram_id)
         if user:
             return user, None
 
@@ -291,6 +350,20 @@ def build_digest_response(user: User):
     )
 
 
+def build_stats_payload(user: User):
+    read_count = UserNews.query.filter_by(user_id=user.id, is_read=True).count()
+    bookmarks_count = UserNews.query.filter_by(user_id=user.id, is_bookmarked=True).count()
+    created_at = user.created_at or datetime.now(timezone.utc)
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    days_since_registration = (datetime.now(timezone.utc) - created_at).days
+    return {
+        "read_count": read_count,
+        "bookmarks_count": bookmarks_count,
+        "streak_days": max(1, days_since_registration),
+    }
+
+
 @app.route("/api/health", methods=["GET"])
 def health_check():
     try:
@@ -326,7 +399,7 @@ def register_user():
     email = (data.get("email") or "").strip().lower() or None
     password = str(data.get("password") or "").strip()
     interests = normalize_interests(data.get("interests"))
-    threshold = int(data.get("threshold") or data.get("news_threshold") or config.NEWS_THRESHOLD)
+    threshold = parse_threshold(data)
 
     if not login:
         return json_error("Login is required.")
@@ -342,6 +415,10 @@ def register_user():
     user = User(login=login, email=email, news_threshold=threshold)
     user.set_password(password)
     user.set_interests(interests)
+    linked_user, error_response = link_telegram_account(user, data)
+    if error_response:
+        return error_response
+    user = linked_user
 
     db.session.add(user)
     db.session.commit()
@@ -368,15 +445,18 @@ def login_user():
     if not identifier or not password:
         return json_error("Login and password are required.")
 
-    user = User.query.filter(
-        or_(
-            func.lower(User.login) == identifier.lower(),
-            func.lower(User.email) == identifier.lower(),
-        )
-    ).first()
+    user = find_user_by_identifier(identifier)
 
     if not user or not user.check_password(password):
         return json_error("Invalid login or password.", 401)
+
+    linked_user, error_response = link_telegram_account(user, data)
+    if error_response:
+        return error_response
+    user = linked_user
+
+    if data.get("telegram_id"):
+        db.session.commit()
 
     token = create_auth_token(user)
     return jsonify(
@@ -401,13 +481,123 @@ def auth_logout():
     return jsonify({"message": "Logout successful."})
 
 
+@app.route("/api/auth/telegram/login", methods=["POST"])
+def telegram_login():
+    data = parse_json()
+    identifier = (data.get("login") or data.get("email") or data.get("username") or "").strip()
+    password = str(data.get("password") or "").strip()
+
+    if not identifier or not password:
+        return json_error("Login and password are required.")
+
+    user = find_user_by_identifier(identifier)
+    if not user or not user.check_password(password):
+        return json_error("Invalid login or password.", 401)
+
+    linked_user, error_response = link_telegram_account(user, data)
+    if error_response:
+        return error_response
+    db.session.commit()
+
+    token = create_auth_token(linked_user)
+    return jsonify(
+        {
+            "message": "Telegram login successful.",
+            "token": token,
+            "user": linked_user.to_dict(),
+        }
+    )
+
+
+@app.route("/api/auth/telegram/register", methods=["POST"])
+def telegram_register():
+    data = parse_json()
+    login = (data.get("login") or data.get("username") or "").strip()
+    email = (data.get("email") or "").strip().lower() or None
+    password = str(data.get("password") or "").strip()
+    interests = normalize_interests(data.get("interests"))
+    threshold = parse_threshold(data)
+
+    if not login:
+        return json_error("Login is required.")
+    if not password or len(password) < 6:
+        return json_error("Password must contain at least 6 characters.")
+
+    if User.query.filter(func.lower(User.login) == login.lower()).first():
+        return json_error("User with this login already exists.", 409)
+    if email and User.query.filter(func.lower(User.email) == email.lower()).first():
+        return json_error("User with this email already exists.", 409)
+
+    user = User(login=login, email=email, news_threshold=threshold)
+    user.set_password(password)
+    user.set_interests(interests)
+
+    linked_user, error_response = link_telegram_account(user, data)
+    if error_response:
+        return error_response
+
+    db.session.add(linked_user)
+    db.session.commit()
+
+    token = create_auth_token(linked_user)
+    return (
+        jsonify(
+            {
+                "message": "Telegram user created successfully.",
+                "token": token,
+                "user": linked_user.to_dict(),
+            }
+        ),
+        201,
+    )
+
+
+@app.route("/api/auth/telegram/link", methods=["POST"])
+def telegram_link():
+    user, error_response = get_current_user(required=True)
+    if error_response:
+        return error_response
+
+    data = parse_json()
+    linked_user, link_error = link_telegram_account(user, data)
+    if link_error:
+        return link_error
+
+    db.session.commit()
+    return jsonify({"message": "Telegram account linked.", "user": linked_user.to_dict()})
+
+
+@app.route("/api/auth/telegram/unlink", methods=["POST"])
+def telegram_unlink():
+    user, error_response = get_current_user(required=True)
+    if error_response:
+        return error_response
+
+    user.unlink_telegram()
+    db.session.commit()
+    return jsonify({"message": "Telegram account unlinked.", "user": user.to_dict()})
+
+
 @app.route("/api/users/telegram/<int:telegram_id>", methods=["GET"])
 def get_user_by_telegram(telegram_id):
-    email = f"telegram_{telegram_id}@idoskills.local"
-    user = User.query.filter_by(email=email).first()
+    user = get_user_by_telegram_id_value(telegram_id)
     if not user:
         return json_error("User not found.", 404)
     return jsonify(user.to_dict())
+
+
+@app.route("/api/users/telegram/<int:telegram_id>/interests", methods=["PUT"])
+def update_telegram_interests(telegram_id):
+    user = get_user_by_telegram_id_value(telegram_id)
+    if not user:
+        return json_error("User not found.", 404)
+
+    data = parse_json()
+    user.set_interests(data.get("interests"))
+    user.news_threshold = parse_threshold(data)
+    db.session.commit()
+
+    return jsonify({"message": "Telegram interests saved.", "user": user.to_dict()})
 
 
 @app.route("/api/users/me", methods=["GET"])
@@ -531,18 +721,15 @@ def get_user_stats(user_id):
     user, error_response = ensure_owner_or_current(user_id)
     if error_response:
         return error_response
+    return jsonify(build_stats_payload(user))
 
-    read_count = UserNews.query.filter_by(user_id=user.id, is_read=True).count()
-    bookmarks_count = UserNews.query.filter_by(user_id=user.id, is_bookmarked=True).count()
-    days_since_registration = (datetime.now(timezone.utc) - user.created_at).days
 
-    return jsonify(
-        {
-            "read_count": read_count,
-            "bookmarks_count": bookmarks_count,
-            "streak_days": max(1, days_since_registration),
-        }
-    )
+@app.route("/api/users/telegram/<int:telegram_id>/stats", methods=["GET"])
+def get_telegram_user_stats(telegram_id):
+    user = get_user_by_telegram_id_value(telegram_id)
+    if not user:
+        return json_error("User not found.", 404)
+    return jsonify(build_stats_payload(user))
 
 
 @app.route("/api/news/<int:news_id>/read", methods=["POST"])
@@ -617,6 +804,39 @@ def get_digest(user_id):
     if error_response:
         return error_response
     return build_digest_response(user)
+
+
+@app.route("/api/users/telegram/<int:telegram_id>/digest", methods=["GET"])
+def get_telegram_digest(telegram_id):
+    user = get_user_by_telegram_id_value(telegram_id)
+    if not user:
+        return json_error("User not found.", 404)
+    return build_digest_response(user)
+
+
+@app.route("/api/assistant/chat", methods=["POST"])
+def assistant_chat():
+    data = parse_json()
+    message = str(data.get("message") or "").strip()
+    if not message:
+        return json_error("Message is required.")
+
+    user, error_response = get_user_from_request_or_token(required=False)
+    if error_response:
+        return error_response
+
+    stored_news = sync_demo_news()
+    personal_news = filter_news_for_user(stored_news, user.interests_list if user else []) if user else stored_news[:5]
+    result = assistant_service.chat(message=message, user=user, news_items=personal_news)
+
+    return jsonify(
+        {
+            "reply": result.get("reply") or "",
+            "sources": result.get("sources") or [],
+            "provider": result.get("provider") or "fallback",
+            "user": user.to_dict() if user else None,
+        }
+    )
 
 
 @app.route("/api/news", methods=["GET"])

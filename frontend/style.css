@@ -4,6 +4,11 @@
     box-sizing: border-box;
 }
 
+.download-card {
+    text-decoration: none;
+    color: inherit;
+}
+
 :root {
     --bg-top: #f7efe4;
     --bg-bottom: #dfe8ff;
@@ -476,4 +481,249 @@ footer {
     .btn-ghost {
         width: 100%;
     }
+}
+
+/* ===== DOWNLOAD SECTION ===== */
+
+.download-section {
+    margin-top: 40px;
+    position: relative;
+    overflow: hidden;
+}
+
+.download-title {
+    font-size: 1.6rem;
+    margin-bottom: 18px;
+}
+
+/* карточки */
+.download-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+}
+
+.download-card {
+    position: relative;
+    padding: 26px;
+    border-radius: 22px;
+    text-align: center;
+    cursor: pointer;
+    overflow: hidden;
+
+    background: rgba(255,255,255,0.85);
+    border: 1px solid var(--line);
+
+    transition: 0.35s ease;
+}
+
+/* hover эффект */
+.download-card:hover {
+    transform: translateY(-8px) scale(1.03);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.12);
+}
+
+/* иконка */
+.download-card .icon {
+    font-size: 2.5rem;
+    margin-bottom: 12px;
+    transition: 0.3s;
+}
+
+.download-card:hover .icon {
+    transform: rotate(10deg) scale(1.2);
+}
+
+/* цвета платформ */
+.download-card.tg {
+    background: linear-gradient(135deg, #e3f2ff, #ffffff);
+}
+
+.download-card.win {
+    background: linear-gradient(135deg, #e8f0ff, #ffffff);
+}
+
+.download-card.android {
+    background: linear-gradient(135deg, #e8ffe8, #ffffff);
+}
+
+/* glow эффект */
+.download-card::before {
+    content: "";
+    position: absolute;
+    width: 120%;
+    height: 120%;
+    top: -10%;
+    left: -10%;
+    background: radial-gradient(circle, rgba(31,111,235,0.15), transparent 60%);
+    opacity: 0;
+    transition: 0.4s;
+}
+
+.download-card:hover::before {
+    opacity: 1;
+}
+
+/* ===== АНИМАЦИИ ФОНА ===== */
+
+.floating-shapes span {
+    position: absolute;
+    display: block;
+    border-radius: 50%;
+    background: rgba(31,111,235,0.12);
+    animation: float 10s infinite ease-in-out;
+}
+
+.floating-shapes span:nth-child(1) {
+    width: 120px;
+    height: 120px;
+    left: 10%;
+    top: 20%;
+}
+
+.floating-shapes span:nth-child(2) {
+    width: 80px;
+    height: 80px;
+    right: 15%;
+    top: 40%;
+    animation-delay: 2s;
+}
+
+.floating-shapes span:nth-child(3) {
+    width: 60px;
+    height: 60px;
+    left: 40%;
+    bottom: 10%;
+    animation-delay: 4s;
+}
+
+@keyframes float {
+    0% { transform: translateY(0px) }
+    50% { transform: translateY(-25px) }
+    100% { transform: translateY(0px) }
+}
+
+/* адаптив */
+@media (max-width: 760px) {
+    .download-cards {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ===== NEURAL BACKGROUND ===== */
+
+#neural-bg {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    background: radial-gradient(circle at center, #eef3ff, #dfe8ff);
+}
+
+/* контейнер поверх */
+.container {
+    position: relative;
+    z-index: 1;
+}
+
+/* ===== SVG ICON STYLE ===== */
+
+.download-card svg {
+    width: 52px;
+    height: 52px;
+    margin-bottom: 14px;
+    transition: 0.3s;
+}
+
+.download-card:hover svg {
+    transform: scale(1.15) rotate(8deg);
+}
+
+/* мягкое свечение */
+.download-card.tg svg { fill: #229ED9; }
+.download-card.win svg { fill: #0078D6; }
+.download-card.android svg { fill: #3DDC84; }
+
+/* glass усиление */
+.download-card {
+    backdrop-filter: blur(12px);
+}
+
+/* чуть более "живые" карточки */
+.download-card {
+    transform-style: preserve-3d;
+}
+
+.download-card:hover {
+    transform: translateY(-10px) scale(1.04) rotateX(3deg);
+}
+
+/* ===== PLATFORM TEXT ===== */
+
+.platform-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    margin-bottom: 6px;
+    color: #1f2937;
+    transition: 0.3s ease;
+}
+
+/* градиент при hover */
+.download-card:hover .platform-title {
+    background: linear-gradient(90deg, #1f6feb, #4f9cff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* подзаголовок */
+.platform-sub {
+    font-size: 0.9rem;
+    color: #6b7280;
+    letter-spacing: 0.2px;
+    transition: 0.3s;
+}
+
+/* лёгкое оживление */
+.download-card:hover .platform-sub {
+    color: #1f6feb;
+    transform: translateY(2px);
+}
+
+/* микро-анимация появления */
+.download-card {
+    animation: fadeUp 0.6s ease forwards;
+    opacity: 0;
+}
+
+.download-card:nth-child(1) { animation-delay: 0.1s; }
+.download-card:nth-child(2) { animation-delay: 0.2s; }
+.download-card:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes fadeUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+.download-card svg {
+    max-width: 60px;
+    max-height: 60px;
+}
+.download-card h3,
+.download-card p {
+    position: relative;
+    z-index: 2;
+}
+.download-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
 }

@@ -1,32 +1,25 @@
 @echo off
-echo ============================================
-echo IDO SKILLS News - Telegram Bot Launcher
-echo ============================================
+setlocal
 
 cd /d "%~dp0"
 
-echo [1/3] Проверка переменных окружения...
-if not exist ".env.bot" (
-    echo [WARNING] Файл .env.bot не найден, используем значения по умолчанию
-) else (
-    echo [OK] Файл .env.bot найден
-    for /f "delims=" %%a in (.env.bot) do set %%a
-)
-
-echo [2/3] Проверка бэкенда...
-curl -s http://localhost:5000/api/health >nul 2>&1
-if errorlevel 1 (
-    echo [ERROR] Бэкенд не отвечает на http://localhost:5000
-    echo [INFO] Запустите бэкенд: python app.py
-    pause
-    exit /b 1
-)
-echo [OK] Бэкенд доступен
-
-echo [3/3] Запуск бота...
-echo Откройте Telegram и найдите вашего бота
+echo ============================================
+echo IDO SKILLS News - Telegram Bot
 echo ============================================
 
-..\venv\Scripts\python.exe telegram_bot_production.py
+if exist ".env.bot" (
+    echo [OK] .env.bot found
+) else (
+    echo [WARN] .env.bot not found, using .env values
+)
 
-pause
+if exist "..\.venv\Scripts\python.exe" (
+    set "PYTHON_EXE=..\.venv\Scripts\python.exe"
+) else (
+    set "PYTHON_EXE=python"
+)
+
+echo [RUN] Starting telegram_bot.py
+"%PYTHON_EXE%" telegram_bot.py
+
+endlocal

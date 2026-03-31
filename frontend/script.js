@@ -315,4 +315,106 @@ async function restoreSession() {
     }
 }
 
+const canvas = document.getElementById("neural-bg");
+const ctx = canvas.getContext("2d");
+
+let nodes = [];
+const NODE_COUNT = 90;
+const MAX_DIST = 120;
+
+let mouse = { x: null, y: null };
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener("resize", resize);
+
+window.addEventListener("mousemove", (e) => {
+    mouse.x = e.x;
+    mouse.y = e.y;
+});
+
+class Node {
+    constructor() {
+        this.x = Math.random() * canvas.width;
+        this.y = Math.random() * canvas.height;
+        this.vx = (Math.random() - 0.5) * 0.6;
+        this.vy = (Math.random() - 0.5) * 0.6;
+    }
+
+    move() {
+        this.x += this.vx;
+        this.y += this.vy;
+
+        if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+        if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+    }
+
+    draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(31,111,235,0.7)";
+        ctx.fill();
+    }
+}
+
+function init() {
+    nodes = [];
+    for (let i = 0; i < NODE_COUNT; i++) {
+        nodes.push(new Node());
+    }
+}
+init();
+
+function connect() {
+    for (let i = 0; i < nodes.length; i++) {
+        for (let j = i; j < nodes.length; j++) {
+            let dx = nodes[i].x - nodes[j].x;
+            let dy = nodes[i].y - nodes[j].y;
+            let dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist < MAX_DIST) {
+                ctx.strokeStyle = `rgba(31,111,235,${1 - dist / MAX_DIST})`;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(nodes[i].x, nodes[i].y);
+                ctx.lineTo(nodes[j].x, nodes[j].y);
+                ctx.stroke();
+            }
+        }
+
+        // связь с курсором
+        if (mouse.x) {
+            let dx = nodes[i].x - mouse.x;
+            let dy = nodes[i].y - mouse.y;
+            let dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist < 160) {
+                ctx.strokeStyle = "rgba(255,140,0,0.6)";
+                ctx.beginPath();
+                ctx.moveTo(nodes[i].x, nodes[i].y);
+                ctx.lineTo(mouse.x, mouse.y);
+                ctx.stroke();
+            }
+        }
+    }
+}
+
+function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    nodes.forEach((node) => {
+        node.move();
+        node.draw();
+    });
+
+    connect();
+
+    requestAnimationFrame(animate);
+}
+
+animate();
+
 document.addEventListener("DOMContentLoaded", restoreSession);
