@@ -1,358 +1,659 @@
-"""
-IDO SKILLS - Интеллектуальная лента новостей
-Версия 1.0.0
-"""
+"""IDO SKILLS News backend with PostgreSQL-ready auth API."""
+
+from __future__ import annotations
+
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-# Добавляем backend в путь импортов
+from flask import Flask, jsonify, request, send_from_directory
+from flask_cors import CORS
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from sqlalchemy import func, or_, text
+
 sys.path.insert(0, str(Path(__file__).parent))
 
-from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS
-from datetime import datetime, timezone
-import json
-import os
-
 from config import config
-from database import db, init_db, User, News, UserNews
+from database import News, User, UserNews, db, init_db, normalize_interests
 from services.llm_service import LLMService
 from services.news_fetcher import NewsFetcher
 from services.summarizer import Summarizer
-# ==================== LANGCHAIN ЗАГЛУШКА (без OpenAI) ====================
-# Для демо/конкурса - работает без API ключа
-# Когда будет ключ - заменим на реальный LangChain
+
 
 class MockLLM:
-    """Заглушка вместо OpenAI для демо"""
-    
+    """Fallback summary generator for demo mode."""
+
     def generate_summary(self, news_list, interests):
-        """Генерирует сводку без использования AI"""
         if not news_list:
-            return "📰 Нет новостей для отображения"
-        
-        # Простая генерация сводки на основе шаблона
-        summary = f"""📋 ИНТЕЛЛЕКТУАЛЬНАЯ СВОДКА IDO SKILLS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 Интересы: {', '.join(interests) if interests else 'общие темы'}
-📅 Дата: {datetime.now().strftime('%d.%m.%Y %H:%M')}
+            return "Нет новостей для отображения."
 
-🔥 ТОП НОВОСТЕЙ:
-"""
-        for i, news in enumerate(news_list[:5], 1):
-            summary += f"""
-{i}. {news.get('title', 'Без названия')}
-   Источник: {news.get('source', 'Unknown')} | Важность: {news.get('importance_score', 'N/A')}/10
-   {news.get('summary', '')[:100]}...
-"""
-        
-        summary += """
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✨ Сводка сгенерирована автоматически
-💡 Для AI-сводки подключите OpenAI API
-"""
-        return summary
-    
-    def analyze_news(self, news_text):
-        """Анализирует новость (заглушка)"""
-        return {
-            'category': 'технологии',
-            'sentiment': 'neutral',
-            'importance': 7
-        }
+        interest_text = ", ".join(interests) if interests else "общая лента"
+        lines = [
+            "IDO SKILLS NEWS DIGEST",
+            f"Интересы: {interest_text}",
+            f"Дата: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+            "",
+            "Топ новостей:",
+        ]
 
-# Создаём экземпляр
-mock_llm = MockLLM()
-# =======================================================================
-app = Flask(__name__, 
-    static_folder='../frontend',
-    static_url_path=''
-)
-app.config['SQLALCHEMY_DATABASE_URI'] = config.DATABASE_URL
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = config.SECRET_KEY
+        for index, news in enumerate(news_list[:5], start=1):
+            lines.append(
+                f"{index}. {news.get('title', 'Без названия')} "
+                f"({news.get('source', 'Источник не указан')}, "
+                f"важность {news.get('importance_score', 'N/A')}/10)"
+            )
+            summary = (news.get("summary") or "").strip()
+            if summary:
+                lines.append(f"   {summary[:160]}")
 
-CORS(app)
+        lines.append("")
+        lines.append("Сводка сгенерирована встроенным демо-режимом.")
+        return "\n".join(lines)
+
+
+BASE_DIR = Path(__file__).resolve().parent
+FRONTEND_DIR = BASE_DIR.parent / "frontend"
+
+app = Flask(__name__, static_folder=str(FRONTEND_DIR), static_url_path="")
+app.config["SQLALCHEMY_DATABASE_URI"] = config.DATABASE_URL
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SECRET_KEY"] = config.SECRET_KEY
+
+CORS(app, resources={r"/api/*": {"origins": config.CORS_ORIGINS}})
 init_db(app)
 
-# Инициализация сервисов
 llm_service = LLMService()
 news_fetcher = NewsFetcher()
 summarizer = Summarizer()
+mock_llm = MockLLM()
+serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"], salt=config.AUTH_TOKEN_SALT)
 
-print("[DEBUG] Бэкенд запущен, API готово!")
 
-# ==================== API ROUTES ====================
+def parse_json():
+    return request.get_json(silent=True) or {}
 
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    """Проверка здоровья сервиса"""
-    print("[DEBUG] /api/health -> запрос")
-    return jsonify({
-        'status': 'ok',
-        'llm_connected': llm_service.check_connection(),
-        'version': '1.0.0'
-    })
 
-@app.route('/api/users', methods=['POST'])
-def create_user():
-    """Создание нового пользователя"""
-    print("[DEBUG] /api/users -> POST запрос")
-    data = request.get_json()
-    print(f"[DEBUG] Данные: {data}")
-    
-    if not data:
-        return jsonify({'error': 'No data provided'}), 400
-    
-    email = data.get('email')
-    username = data.get('username', 'User')
-    
-    # Проверяем, не существует ли уже пользователь с таким email
-    existing_user = User.query.filter_by(email=email).first()
-    if existing_user:
-        print(f"[DEBUG] Пользователь с email {email} уже существует, возвращаем существующего")
-        return jsonify(existing_user.to_dict()), 200
-    
-    user = User(
-        username=username,
-        email=email,
-        interests=json.dumps(data.get('interests', []))
-    )
-    db.session.add(user)
-    db.session.commit()
-    print(f"[DEBUG] Создан новый пользователь: {user.username} (ID: {user.id})")
-    return jsonify(user.to_dict()), 201
+def json_error(message, status_code=400):
+    return jsonify({"error": message}), status_code
 
-@app.route('/api/users/telegram/<int:telegram_id>', methods=['GET'])
-def get_user_by_telegram(telegram_id):
-    """Получить пользователя по Telegram ID"""
-    print(f"[DEBUG] /api/users/telegram/{telegram_id} -> запрос")
-    email = f"telegram_{telegram_id}@idoskills.local"
-    user = User.query.filter_by(email=email).first()
-    
+
+def create_auth_token(user: User) -> str:
+    return serializer.dumps({"user_id": user.id, "login": user.login})
+
+
+def extract_token():
+    auth_header = request.headers.get("Authorization", "").strip()
+    if auth_header.lower().startswith("bearer "):
+        return auth_header.split(" ", 1)[1].strip()
+
+    fallback = request.headers.get("X-Auth-Token", "").strip()
+    if fallback:
+        return fallback
+
+    token = request.args.get("token", "").strip()
+    if token:
+        return token
+
+    payload = parse_json()
+    return str(payload.get("token", "")).strip()
+
+
+def get_current_user(required=True):
+    token = extract_token()
+    if not token:
+        if required:
+            return None, json_error("Authentication token is required.", 401)
+        return None, None
+
+    try:
+        payload = serializer.loads(token, max_age=config.AUTH_TOKEN_MAX_AGE)
+    except SignatureExpired:
+        return None, json_error("Authentication token expired.", 401)
+    except BadSignature:
+        return None, json_error("Authentication token is invalid.", 401)
+
+    user = db.session.get(User, payload.get("user_id"))
+    if not user:
+        return None, json_error("User not found.", 401)
+
+    return user, None
+
+
+def get_user_from_request_or_token(required=True):
+    user, _ = get_current_user(required=False)
     if user:
-        print(f"[DEBUG] Найден пользователь: {user.username} (ID: {user.id})")
-        return jsonify(user.to_dict())
-    print(f"[DEBUG] Пользователь с Telegram ID {telegram_id} не найден")
-    return jsonify({'error': 'User not found'}), 404
+        return user, None
 
-@app.route('/api/users/<int:user_id>', methods=['GET'])
-def get_user(user_id):
-    """Получение информации о пользователе"""
-    print(f"[DEBUG] /api/users/{user_id} -> GET запрос")
-    user = User.query.get(user_id)
-    if user:
-        return jsonify(user.to_dict())
-    return jsonify({'error': 'User not found'}), 404
-
-@app.route('/api/users/<int:user_id>', methods=['PUT'])
-def update_user(user_id):
-    """Обновить данные пользователя"""
-    print(f"[DEBUG] /api/users/{user_id} -> PUT запрос")
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
-    
-    data = request.get_json()
-    if 'username' in data:
-        user.username = data['username']
-    if 'interests' in data:
-        user.interests = json.dumps(data['interests'])
-    if 'news_threshold' in data:
-        user.news_threshold = data['news_threshold']
-    
-    db.session.commit()
-    print(f"[DEBUG] Обновлён пользователь {user_id}")
-    return jsonify(user.to_dict())
-
-@app.route('/api/users/<int:user_id>/interests', methods=['PUT'])
-def update_interests(user_id):
-    """Обновление интересов пользователя"""
-    print(f"[DEBUG] /api/users/{user_id}/interests -> PUT запрос")
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
-    
-    data = request.get_json()
-    user.interests = json.dumps(data.get('interests', []))
-    user.news_threshold = data.get('threshold', config.NEWS_THRESHOLD)
-    db.session.commit()
-    print(f"[DEBUG] Обновлены интересы пользователя {user_id}")
-    return jsonify(user.to_dict())
-
-@app.route('/api/users/<int:user_id>/stats', methods=['GET'])
-def get_user_stats(user_id):
-    """Получить статистику пользователя"""
-    print(f"[DEBUG] /api/users/{user_id}/stats -> GET запрос")
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
-    
-    # Считаем прочитанные новости (из UserNews)
-    read_count = UserNews.query.filter_by(user_id=user_id, is_read=True).count()
-    
-    # Считаем закладки
-    bookmarks_count = UserNews.query.filter_by(user_id=user_id, is_bookmarked=True).count()
-    
-    # Считаем дни подряд (с момента регистрации)
-    days_since_registration = (datetime.now(timezone.utc) - user.created_at).days
-    
-    return jsonify({
-        'read_count': read_count,
-        'bookmarks_count': bookmarks_count,
-        'streak_days': max(1, days_since_registration)
-    })
-
-@app.route('/api/news/<int:news_id>/read', methods=['POST'])
-def mark_news_read(news_id):
-    """Отметить новость как прочитанную"""
-    print(f"[DEBUG] /api/news/{news_id}/read -> POST запрос")
-    data = request.get_json()
-    user_id = data.get('user_id')
-    
-    if not user_id:
-        return jsonify({'error': 'user_id required'}), 400
-    
-    # Находим или создаём запись
-    user_news = UserNews.query.filter_by(user_id=user_id, news_id=news_id).first()
-    if user_news:
-        user_news.is_read = True
-    else:
-        user_news = UserNews(user_id=user_id, news_id=news_id, is_read=True)
-        db.session.add(user_news)
-    
-    db.session.commit()
-    return jsonify({'success': True})
-
-@app.route('/api/news/<int:news_id>/bookmark', methods=['POST'])
-def toggle_news_bookmark(news_id):
-    """Добавить/удалить закладку"""
-    print(f"[DEBUG] /api/news/{news_id}/bookmark -> POST запрос")
-    data = request.get_json()
-    user_id = data.get('user_id')
-    
-    if not user_id:
-        return jsonify({'error': 'user_id required'}), 400
-    
-    user_news = UserNews.query.filter_by(user_id=user_id, news_id=news_id).first()
-    if user_news:
-        user_news.is_bookmarked = not user_news.is_bookmarked
-    else:
-        user_news = UserNews(user_id=user_id, news_id=news_id, is_bookmarked=True)
-        db.session.add(user_news)
-    
-    db.session.commit()
-    return jsonify({'success': True, 'bookmarked': user_news.is_bookmarked})
-
-@app.route('/api/news/fetch', methods=['POST'])
-def fetch_news():
-    """Получение свежих новостей с фильтрацией по интересам"""
-    print("[DEBUG] /api/news/fetch -> POST запрос")
-    data = request.get_json() or {}
-    user_id = data.get('user_id')
-    
-    # Получаем интересы пользователя
-    user_interests = []
+    data = parse_json()
+    user_id = data.get("user_id") or request.args.get("user_id")
     if user_id:
-        user = User.query.get(user_id)
+        try:
+            user = db.session.get(User, int(user_id))
+        except (TypeError, ValueError):
+            user = None
         if user:
-            user_interests = json.loads(user.interests or '[]')
-            print(f"[DEBUG] Интересы пользователя: {user_interests}")
-    
-    # Демо-новости с категориями
-    all_news = [
-        {'id': 1, 'title': '🤖 ИИ достиг нового уровня в 2026', 'url': 'https://example.com/1', 'source': 'Tech News', 'published_at': datetime.now(timezone.utc).isoformat(), 'importance_score': 9, 'summary': 'Прорыв в области языковых моделей', 'category': 'технологии'},
-        {'id': 2, 'title': '📱 Новые технологии для образования', 'url': 'https://example.com/2', 'source': 'Edu Tech', 'published_at': datetime.now(timezone.utc).isoformat(), 'importance_score': 7, 'summary': 'Цифровые платформы меняют обучение', 'category': 'технологии'},
-        {'id': 3, 'title': '🚀 Стартапы недели: топ-5', 'url': 'https://example.com/3', 'source': 'Business', 'published_at': datetime.now(timezone.utc).isoformat(), 'importance_score': 6, 'summary': 'Обзор перспективных проектов', 'category': 'бизнес'},
-        {'id': 4, 'title': '💻 Python остаётся лидером', 'url': 'https://example.com/4', 'source': 'Dev Weekly', 'published_at': datetime.now(timezone.utc).isoformat(), 'importance_score': 8, 'summary': 'Язык программирования №1 в мире', 'category': 'технологии'},
-        {'id': 5, 'title': '🌐 Веб-технологии 2026', 'url': 'https://example.com/5', 'source': 'Web Dev', 'published_at': datetime.now(timezone.utc).isoformat(), 'importance_score': 7, 'summary': 'Тренды фронтенда и бэкенда', 'category': 'технологии'},
-        {'id': 6, 'title': '⚽ Чемпионат мира 2026', 'url': 'https://example.com/6', 'source': 'Sport News', 'published_at': datetime.now(timezone.utc).isoformat(), 'importance_score': 8, 'summary': 'Обзор главных матчей', 'category': 'спорт'},
-        {'id': 7, 'title': '🔬 Открытие года в науке', 'url': 'https://example.com/7', 'source': 'Science Daily', 'published_at': datetime.now(timezone.utc).isoformat(), 'importance_score': 9, 'summary': 'Учёные сделали прорыв', 'category': 'наука'},
-        {'id': 8, 'title': '💼 Рынок акций растёт', 'url': 'https://example.com/8', 'source': 'Finance', 'published_at': datetime.now(timezone.utc).isoformat(), 'importance_score': 6, 'summary': 'Индексы показывают рост', 'category': 'бизнес'},
-    ]
-    
-    # Фильтруем по интересам пользователя
-    if user_interests:
-        filtered_news = [n for n in all_news if n.get('category') in user_interests]
-        news_to_show = filtered_news if filtered_news else all_news[:5]
-        print(f"[DEBUG] Найдено {len(news_to_show)} новостей по интересам")
-    else:
-        news_to_show = all_news[:5]
-    
-    print(f"[DEBUG] Отправлено {len(news_to_show)} новостей")
-    return jsonify({'count': len(news_to_show), 'news': news_to_show})
+            return user, None
 
-@app.route('/api/users/<int:user_id>/digest', methods=['GET'])
-def get_digest(user_id):
-    """Получение сводки новостей для пользователя (с LangChain заглушкой)"""
-    print(f"[DEBUG] /api/users/{user_id}/digest -> GET запрос")
-    user = User.query.get(user_id)
-    if not user:
-        print(f"[DEBUG] Пользователь {user_id} не найден")
-        return jsonify({'error': 'User not found'}), 404
-    
-    interests = json.loads(user.interests or '[]')
-    interests_str = ', '.join(interests) if interests else 'общие новости'
-    
-    # Получаем новости
-    news_list = News.query.filter_by(is_processed=True).order_by(
-        News.importance_score.desc()
-    ).limit(10).all()
-    
-    # Если есть новости в базе - используем их
-    if news_list:
-        news_dicts = [n.to_dict() for n in news_list]
-        # Используем заглушку LangChain
-        digest = mock_llm.generate_summary(news_dicts, interests)
-    else:
-        # Демо-новости для сводки
-        demo_news = [
-            {'title': '🤖 ИИ достиг нового уровня в 2026', 'source': 'Tech News', 'importance_score': 9, 'summary': 'Прорыв в области языковых моделей'},
-            {'title': '💻 Python остаётся лидером', 'source': 'Dev Weekly', 'importance_score': 8, 'summary': 'Язык программирования №1 в мире'},
-            {'title': '📱 Новые технологии для образования', 'source': 'Edu Tech', 'importance_score': 7, 'summary': 'Цифровые платформы меняют обучение'},
-        ]
-        digest = mock_llm.generate_summary(demo_news, interests)
-    
+    if required:
+        return None, json_error("Authentication is required.", 401)
+
+    return None, None
+
+
+def build_demo_news():
+    now = datetime.now(timezone.utc)
+    return [
+        {
+            "title": "ИИ помогает редакциям быстрее собирать новости",
+            "url": "https://example.com/news/ai-newsroom",
+            "source": "Tech News",
+            "category": "технологии",
+            "summary": "Редакции используют ИИ для поиска тем, расстановки приоритетов и черновых сводок.",
+            "content": "Новые инструменты помогают новостным командам ускорять подготовку материалов и подбор тем.",
+            "importance_score": 9,
+            "published_at": now - timedelta(minutes=15),
+        },
+        {
+            "title": "Стартапы в области ИИ привлекли новые инвестиции",
+            "url": "https://example.com/news/ai-startups",
+            "source": "Startup Weekly",
+            "category": "стартапы",
+            "summary": "Инвесторы продолжают вкладываться в команды, которые автоматизируют аналитику и клиентский сервис.",
+            "content": "Раунд финансирования получили компании, работающие с корпоративными AI-продуктами.",
+            "importance_score": 8,
+            "published_at": now - timedelta(hours=1),
+        },
+        {
+            "title": "Python остается основным языком для ML и автоматизации",
+            "url": "https://example.com/news/python-ml",
+            "source": "Dev Weekly",
+            "category": "программирование",
+            "summary": "Экосистема Python продолжает расти благодаря data science и backend-разработке.",
+            "content": "Сообщество продолжает выпускать библиотеки для анализа данных, API и автоматизации процессов.",
+            "importance_score": 8,
+            "published_at": now - timedelta(hours=2),
+        },
+        {
+            "title": "Новый инструмент аналитики собирает новости по интересам пользователя",
+            "url": "https://example.com/news/personal-digest",
+            "source": "Product Radar",
+            "category": "аналитика",
+            "summary": "Продукт объединяет фильтрацию, оценку важности и генерацию персональных дайджестов.",
+            "content": "Сервисы персонализации становятся ядром для приложений, работающих с потоками новостей.",
+            "importance_score": 7,
+            "published_at": now - timedelta(hours=3),
+        },
+        {
+            "title": "Команды внедряют безопасную авторизацию для рабочих приложений",
+            "url": "https://example.com/news/auth-security",
+            "source": "Security Daily",
+            "category": "безопасность",
+            "summary": "Хранение паролей в виде хеша и токены доступа стали обязательным стандартом.",
+            "content": "Компании переходят на более надежные схемы хранения учетных данных и контроля доступа.",
+            "importance_score": 7,
+            "published_at": now - timedelta(hours=4),
+        },
+        {
+            "title": "Рынок EdTech делает ставку на персональные рекомендации",
+            "url": "https://example.com/news/edtech-personalization",
+            "source": "Edu Tech",
+            "category": "образование",
+            "summary": "Платформы обучения адаптируют контент под интересы и поведение пользователей.",
+            "content": "Персонализация стала главным трендом платформ дистанционного обучения и корпоративного апскиллинга.",
+            "importance_score": 6,
+            "published_at": now - timedelta(hours=5),
+        },
+    ]
+
+
+def sync_demo_news():
+    stored_items = []
+    for item in build_demo_news():
+        news = News.query.filter_by(url=item["url"]).one_or_none()
+        if news is None:
+            news = News(url=item["url"])
+            db.session.add(news)
+
+        news.title = item["title"]
+        news.source = item["source"]
+        news.category = item["category"]
+        news.summary = item["summary"]
+        news.content = item["content"]
+        news.importance_score = item["importance_score"]
+        news.published_at = item["published_at"]
+        news.is_processed = True
+        stored_items.append(news)
+
+    db.session.commit()
+    return stored_items
+
+
+def filter_news_for_user(news_items, interests):
+    ordered_items = sorted(
+        news_items,
+        key=lambda item: (
+            item.importance_score or 0,
+            item.published_at or datetime.min.replace(tzinfo=timezone.utc),
+        ),
+        reverse=True,
+    )
+    normalized = [value.lower() for value in normalize_interests(interests)]
+    if not normalized:
+        return ordered_items[: config.MAX_NEWS_PER_USER]
+
+    matched = []
+    for item in ordered_items:
+        haystack = " ".join(
+            [
+                item.title or "",
+                item.summary or "",
+                item.content or "",
+                item.source or "",
+                item.category or "",
+            ]
+        ).lower()
+        if any(term in haystack for term in normalized):
+            matched.append(item)
+
+    return matched if matched else ordered_items[: config.MAX_NEWS_PER_USER]
+
+
+def serialize_news_list(news_items):
+    return [item.to_dict() for item in news_items]
+
+
+def ensure_owner_or_current(user_id: int):
+    current_user, error_response = get_current_user(required=True)
+    if error_response:
+        return None, error_response
+
+    if current_user.id != user_id:
+        return None, json_error("Access denied.", 403)
+
+    return current_user, None
+
+
+def build_digest_response(user: User):
+    stored_news = sync_demo_news()
+    filtered_news = filter_news_for_user(stored_news, user.interests_list)
+    digest = mock_llm.generate_summary(serialize_news_list(filtered_news), user.interests_list)
+
     user.last_digest = datetime.now(timezone.utc)
     db.session.commit()
-    
-    print(f"[DEBUG] Сводка сгенерирована для пользователя {user_id}")
-    return jsonify({
-        'digest': digest,
-        'news_count': len(news_list) if news_list else len(demo_news),
-        'generated_at': datetime.now(timezone.utc).isoformat(),
-        'ai_generated': True  # Флаг что это AI сводка
-    })
 
-@app.route('/api/news', methods=['GET'])
+    return jsonify(
+        {
+            "digest": digest,
+            "news_count": len(filtered_news),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "ai_generated": True,
+        }
+    )
+
+
+@app.route("/api/health", methods=["GET"])
+def health_check():
+    try:
+        db.session.execute(text("SELECT 1"))
+    except Exception as exc:  # pragma: no cover
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "database": "unavailable",
+                    "message": str(exc),
+                    "version": "2.0.0",
+                }
+            ),
+            500,
+        )
+
+    return jsonify(
+        {
+            "status": "ok",
+            "database": "ok",
+            "llm_connected": llm_service.check_connection(),
+            "version": "2.0.0",
+        }
+    )
+
+
+@app.route("/api/auth/register", methods=["POST"])
+@app.route("/api/users", methods=["POST"])
+def register_user():
+    data = parse_json()
+    login = (data.get("login") or data.get("username") or "").strip()
+    email = (data.get("email") or "").strip().lower() or None
+    password = str(data.get("password") or "").strip()
+    interests = normalize_interests(data.get("interests"))
+    threshold = int(data.get("threshold") or data.get("news_threshold") or config.NEWS_THRESHOLD)
+
+    if not login:
+        return json_error("Login is required.")
+    if not password or len(password) < 6:
+        return json_error("Password must contain at least 6 characters.")
+
+    if User.query.filter(func.lower(User.login) == login.lower()).first():
+        return json_error("User with this login already exists.", 409)
+
+    if email and User.query.filter(func.lower(User.email) == email.lower()).first():
+        return json_error("User with this email already exists.", 409)
+
+    user = User(login=login, email=email, news_threshold=threshold)
+    user.set_password(password)
+    user.set_interests(interests)
+
+    db.session.add(user)
+    db.session.commit()
+
+    token = create_auth_token(user)
+    return (
+        jsonify(
+            {
+                "message": "User created successfully.",
+                "token": token,
+                "user": user.to_dict(),
+            }
+        ),
+        201,
+    )
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def login_user():
+    data = parse_json()
+    identifier = (data.get("login") or data.get("email") or data.get("username") or "").strip()
+    password = str(data.get("password") or "").strip()
+
+    if not identifier or not password:
+        return json_error("Login and password are required.")
+
+    user = User.query.filter(
+        or_(
+            func.lower(User.login) == identifier.lower(),
+            func.lower(User.email) == identifier.lower(),
+        )
+    ).first()
+
+    if not user or not user.check_password(password):
+        return json_error("Invalid login or password.", 401)
+
+    token = create_auth_token(user)
+    return jsonify(
+        {
+            "message": "Login successful.",
+            "token": token,
+            "user": user.to_dict(),
+        }
+    )
+
+
+@app.route("/api/auth/me", methods=["GET"])
+def auth_me():
+    user, error_response = get_current_user(required=True)
+    if error_response:
+        return error_response
+    return jsonify({"user": user.to_dict()})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def auth_logout():
+    return jsonify({"message": "Logout successful."})
+
+
+@app.route("/api/users/telegram/<int:telegram_id>", methods=["GET"])
+def get_user_by_telegram(telegram_id):
+    email = f"telegram_{telegram_id}@idoskills.local"
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return json_error("User not found.", 404)
+    return jsonify(user.to_dict())
+
+
+@app.route("/api/users/me", methods=["GET"])
+def get_current_profile():
+    user, error_response = get_current_user(required=True)
+    if error_response:
+        return error_response
+    return jsonify(user.to_dict())
+
+
+@app.route("/api/users/<int:user_id>", methods=["GET"])
+def get_user(user_id):
+    user, error_response = ensure_owner_or_current(user_id)
+    if error_response:
+        return error_response
+    return jsonify(user.to_dict())
+
+
+@app.route("/api/users/me", methods=["PUT"])
+def update_current_user():
+    user, error_response = get_current_user(required=True)
+    if error_response:
+        return error_response
+
+    data = parse_json()
+    new_login = (data.get("login") or data.get("username") or "").strip()
+    new_email = (data.get("email") or "").strip().lower() or None
+    new_password = str(data.get("password") or "").strip()
+
+    if new_login and new_login.lower() != user.login.lower():
+        if User.query.filter(func.lower(User.login) == new_login.lower(), User.id != user.id).first():
+            return json_error("User with this login already exists.", 409)
+        user.login = new_login
+
+    if new_email != user.email:
+        if new_email and User.query.filter(func.lower(User.email) == new_email.lower(), User.id != user.id).first():
+            return json_error("User with this email already exists.", 409)
+        user.email = new_email
+
+    if "interests" in data:
+        user.set_interests(data.get("interests"))
+
+    if "threshold" in data or "news_threshold" in data:
+        user.news_threshold = int(data.get("threshold") or data.get("news_threshold") or config.NEWS_THRESHOLD)
+
+    if new_password:
+        if len(new_password) < 6:
+            return json_error("Password must contain at least 6 characters.")
+        user.set_password(new_password)
+
+    db.session.commit()
+    return jsonify({"message": "Profile updated.", "user": user.to_dict()})
+
+
+@app.route("/api/users/<int:user_id>", methods=["PUT"])
+def update_user(user_id):
+    user, error_response = ensure_owner_or_current(user_id)
+    if error_response:
+        return error_response
+
+    data = parse_json()
+    new_login = (data.get("login") or data.get("username") or "").strip()
+    new_email = (data.get("email") or "").strip().lower() or None
+    new_password = str(data.get("password") or "").strip()
+
+    if new_login and new_login.lower() != user.login.lower():
+        if User.query.filter(func.lower(User.login) == new_login.lower(), User.id != user.id).first():
+            return json_error("User with this login already exists.", 409)
+        user.login = new_login
+
+    if new_email != user.email:
+        if new_email and User.query.filter(func.lower(User.email) == new_email.lower(), User.id != user.id).first():
+            return json_error("User with this email already exists.", 409)
+        user.email = new_email
+
+    if "interests" in data:
+        user.set_interests(data.get("interests"))
+
+    if "threshold" in data or "news_threshold" in data:
+        user.news_threshold = int(data.get("threshold") or data.get("news_threshold") or config.NEWS_THRESHOLD)
+
+    if new_password:
+        if len(new_password) < 6:
+            return json_error("Password must contain at least 6 characters.")
+        user.set_password(new_password)
+
+    db.session.commit()
+    return jsonify({"message": "Profile updated.", "user": user.to_dict()})
+
+
+@app.route("/api/users/me/interests", methods=["PUT"])
+def update_current_interests():
+    user, error_response = get_current_user(required=True)
+    if error_response:
+        return error_response
+
+    data = parse_json()
+    user.set_interests(data.get("interests"))
+    user.news_threshold = int(data.get("threshold") or config.NEWS_THRESHOLD)
+    db.session.commit()
+
+    return jsonify({"message": "Interests saved.", "user": user.to_dict()})
+
+
+@app.route("/api/users/<int:user_id>/interests", methods=["PUT"])
+def update_interests(user_id):
+    user, error_response = ensure_owner_or_current(user_id)
+    if error_response:
+        return error_response
+
+    data = parse_json()
+    user.set_interests(data.get("interests"))
+    user.news_threshold = int(data.get("threshold") or config.NEWS_THRESHOLD)
+    db.session.commit()
+
+    return jsonify({"message": "Interests saved.", "user": user.to_dict()})
+
+
+@app.route("/api/users/<int:user_id>/stats", methods=["GET"])
+def get_user_stats(user_id):
+    user, error_response = ensure_owner_or_current(user_id)
+    if error_response:
+        return error_response
+
+    read_count = UserNews.query.filter_by(user_id=user.id, is_read=True).count()
+    bookmarks_count = UserNews.query.filter_by(user_id=user.id, is_bookmarked=True).count()
+    days_since_registration = (datetime.now(timezone.utc) - user.created_at).days
+
+    return jsonify(
+        {
+            "read_count": read_count,
+            "bookmarks_count": bookmarks_count,
+            "streak_days": max(1, days_since_registration),
+        }
+    )
+
+
+@app.route("/api/news/<int:news_id>/read", methods=["POST"])
+def mark_news_read(news_id):
+    user, error_response = get_user_from_request_or_token(required=True)
+    if error_response:
+        return error_response
+
+    news = db.session.get(News, news_id)
+    if not news:
+        return json_error("News not found.", 404)
+
+    user_news = UserNews.query.filter_by(user_id=user.id, news_id=news_id).first()
+    if user_news is None:
+        user_news = UserNews(user_id=user.id, news_id=news_id)
+        db.session.add(user_news)
+
+    user_news.is_read = True
+    db.session.commit()
+    return jsonify({"success": True})
+
+
+@app.route("/api/news/<int:news_id>/bookmark", methods=["POST"])
+def toggle_news_bookmark(news_id):
+    user, error_response = get_user_from_request_or_token(required=True)
+    if error_response:
+        return error_response
+
+    news = db.session.get(News, news_id)
+    if not news:
+        return json_error("News not found.", 404)
+
+    user_news = UserNews.query.filter_by(user_id=user.id, news_id=news_id).first()
+    if user_news is None:
+        user_news = UserNews(user_id=user.id, news_id=news_id)
+        db.session.add(user_news)
+
+    user_news.is_bookmarked = not user_news.is_bookmarked
+    db.session.commit()
+    return jsonify({"success": True, "bookmarked": user_news.is_bookmarked})
+
+
+@app.route("/api/news/fetch", methods=["POST"])
+def fetch_news():
+    user, error_response = get_user_from_request_or_token(required=True)
+    if error_response:
+        return error_response
+
+    stored_news = sync_demo_news()
+    filtered_news = filter_news_for_user(stored_news, user.interests_list)
+
+    return jsonify(
+        {
+            "count": len(filtered_news),
+            "news": serialize_news_list(filtered_news),
+            "user": user.to_dict(),
+        }
+    )
+
+
+@app.route("/api/users/me/digest", methods=["GET"])
+def get_current_digest():
+    user, error_response = get_current_user(required=True)
+    if error_response:
+        return error_response
+    return build_digest_response(user)
+
+
+@app.route("/api/users/<int:user_id>/digest", methods=["GET"])
+def get_digest(user_id):
+    user, error_response = ensure_owner_or_current(user_id)
+    if error_response:
+        return error_response
+    return build_digest_response(user)
+
+
+@app.route("/api/news", methods=["GET"])
 def get_all_news():
-    """Получение всех новостей"""
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 20, type=int)
-    news = News.query.order_by(
-        News.importance_score.desc()
-    ).paginate(page=page, per_page=per_page)
-    
-    return jsonify({
-        'items': [n.to_dict() for n in news.items],
-        'total': news.total,
-        'pages': news.pages
-    })
+    sync_demo_news()
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
 
-@app.route('/', methods=['GET'])
+    pagination = News.query.order_by(News.importance_score.desc(), News.published_at.desc()).paginate(
+        page=page,
+        per_page=per_page,
+        error_out=False,
+    )
+
+    return jsonify(
+        {
+            "items": serialize_news_list(pagination.items),
+            "total": pagination.total,
+            "pages": pagination.pages,
+        }
+    )
+
+
+@app.route("/", methods=["GET"])
 def serve_frontend():
-    """Обслуживание фронтенда"""
-    return send_from_directory(app.static_folder, 'index.html')
+    return send_from_directory(app.static_folder, "index.html")
 
-@app.route('/<path:path>', methods=['GET'])
+
+@app.route("/<path:path>", methods=["GET"])
 def serve_static(path):
-    """Обслуживание статических файлов"""
     return send_from_directory(app.static_folder, path)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     print("=" * 50)
     print("IDO SKILLS News started")
     print(f"http://localhost:{config.BACKEND_PORT}")
-    print("Contest build")
+    print("Railway/PostgreSQL ready build")
     print("=" * 50)
-    app.run(host='0.0.0.0', port=config.BACKEND_PORT, debug=config.DEBUG)
+    app.run(host="0.0.0.0", port=config.BACKEND_PORT, debug=config.DEBUG)
