@@ -57,20 +57,38 @@ def init_db(app):
 def ensure_schema_updates():
     inspector = inspect(db.engine)
     tables = set(inspector.get_table_names())
-    if "users" not in tables:
-        return
 
-    existing_columns = {column["name"] for column in inspector.get_columns("users")}
     statements: list[str] = []
 
-    if "telegram_id" not in existing_columns:
-        statements.append("ALTER TABLE users ADD COLUMN telegram_id BIGINT")
-    if "telegram_username" not in existing_columns:
-        statements.append("ALTER TABLE users ADD COLUMN telegram_username VARCHAR(120)")
-    if "telegram_chat_id" not in existing_columns:
-        statements.append("ALTER TABLE users ADD COLUMN telegram_chat_id BIGINT")
-    if "telegram_linked_at" not in existing_columns:
-        statements.append("ALTER TABLE users ADD COLUMN telegram_linked_at TIMESTAMP")
+    # ── users table ──────────────────────────────────────────────────────────
+    if "users" in tables:
+        user_cols = {c["name"] for c in inspector.get_columns("users")}
+        if "telegram_id" not in user_cols:
+            statements.append("ALTER TABLE users ADD COLUMN telegram_id BIGINT")
+        if "telegram_username" not in user_cols:
+            statements.append("ALTER TABLE users ADD COLUMN telegram_username VARCHAR(120)")
+        if "telegram_chat_id" not in user_cols:
+            statements.append("ALTER TABLE users ADD COLUMN telegram_chat_id BIGINT")
+        if "telegram_linked_at" not in user_cols:
+            statements.append("ALTER TABLE users ADD COLUMN telegram_linked_at TIMESTAMP")
+
+    # ── news table ───────────────────────────────────────────────────────────
+    if "news" in tables:
+        news_cols = {c["name"] for c in inspector.get_columns("news")}
+        if "category" not in news_cols:
+            statements.append("ALTER TABLE news ADD COLUMN category VARCHAR(80)")
+        if "source" not in news_cols:
+            statements.append("ALTER TABLE news ADD COLUMN source VARCHAR(200)")
+        if "content" not in news_cols:
+            statements.append("ALTER TABLE news ADD COLUMN content TEXT")
+        if "summary" not in news_cols:
+            statements.append("ALTER TABLE news ADD COLUMN summary TEXT")
+        if "importance_score" not in news_cols:
+            statements.append("ALTER TABLE news ADD COLUMN importance_score INTEGER DEFAULT 0 NOT NULL")
+        if "is_processed" not in news_cols:
+            statements.append("ALTER TABLE news ADD COLUMN is_processed BOOLEAN DEFAULT 0 NOT NULL")
+        if "published_at" not in news_cols:
+            statements.append("ALTER TABLE news ADD COLUMN published_at TIMESTAMP")
 
     for statement in statements:
         db.session.execute(text(statement))
@@ -78,8 +96,11 @@ def ensure_schema_updates():
     if statements:
         db.session.commit()
 
-    db.session.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_telegram_id ON users (telegram_id)"))
-    db.session.commit()
+    if "users" in tables:
+        db.session.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_telegram_id ON users (telegram_id)"
+        ))
+        db.session.commit()
 
 
 class User(db.Model):

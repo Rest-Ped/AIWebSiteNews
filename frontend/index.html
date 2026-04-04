@@ -32,6 +32,7 @@
             <button class="tab-btn" onclick="showTab('settings', this)">2. Интересы</button>
             <button class="tab-btn" onclick="showTab('news', this)">3. Новости</button>
             <button class="tab-btn" onclick="showTab('digest', this)">4. Сводка</button>
+            <button class="tab-btn ai-tab-btn" onclick="showTab('ai-news', this)">5. AI Новости ✦</button>
         </div>
 
         <section id="profile" class="tab-content active">
@@ -179,6 +180,41 @@
             <div id="digest-content" class="digest-content empty-state">
                 Сначала войдите в аккаунт, затем запросите сводку.
             </div>
+        </section>
+
+        <!-- ===== TAB 5: AI НОВОСТИ ===== -->
+        <section id="ai-news" class="tab-content">
+            <div class="panel-header">
+                <h2>AI Новости <span class="ai-badge">Gemini 2.0</span></h2>
+                <p>
+                    Введите тему — Gemini 2.0 найдёт свежие новости, напишет краткое изложение,
+                    автоматически определит категорию и сохранит всё в общую базу данных.
+                    Авторизация не нужна.
+                </p>
+            </div>
+
+            <div class="ai-search-card">
+                <div class="ai-search-row">
+                    <input
+                        type="text"
+                        id="ai-news-topic"
+                        class="ai-search-input"
+                        placeholder="Тема для поиска: например, искусственный интеллект, стартапы, Россия..."
+                        onkeydown="if(event.key==='Enter') fetchAiNews()"
+                    >
+                    <button class="btn-primary ai-search-btn" onclick="fetchAiNews()" id="ai-news-btn">
+                        Найти новости
+                    </button>
+                </div>
+                <div class="ai-search-hint">
+                    По умолчанию ищет топ новостей дня. Данные приходят из Google News и Tavily,
+                    обрабатываются Gemini 2.0 Flash и сохраняются в базу для всех пользователей.
+                </div>
+            </div>
+
+            <div id="ai-news-status" class="ai-status" style="display:none"></div>
+
+            <div id="ai-news-list" class="ai-news-list"></div>
         </section>
 
     <div class="download-cards">

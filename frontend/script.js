@@ -281,6 +281,132 @@ async function saveSettings() {
     }
 }
 
+// ===== TAB 5: AI НОВОСТИ =====
+
+const CATEGORY_COLORS = {
+    технологии:  { bg: "#e0f0ff", text: "#0a5fa8" },
+    политика:    { bg: "#fde8e8", text: "#9b2020" },
+    бизнес:      { bg: "#e6f9f0", text: "#1a6b45" },
+    спорт:       { bg: "#fff3e0", text: "#b35c00" },
+    наука:       { bg: "#ede8ff", text: "#4a1fa8" },
+    здоровье:    { bg: "#e8f8f0", text: "#147a50" },
+    развлечения: { bg: "#fde8fb", text: "#8b1a8b" },
+    мир:         { bg: "#e8f0fd", text: "#1a3fa8" },
+    образование: { bg: "#fdf3e8", text: "#8b5a00" },
+    безопасность:{ bg: "#fde8e8", text: "#8b1a1a" },
+    стартапы:    { bg: "#e8fdfc", text: "#0a6b65" },
+    экономика:   { bg: "#f0fde8", text: "#3a6b1a" },
+    общество:    { bg: "#f5f0e8", text: "#6b5a1a" },
+};
+
+function categoryBadge(category) {
+    const cat = (category || "общество").toLowerCase();
+    const colors = CATEGORY_COLORS[cat] || { bg: "#f0f0f0", text: "#555" };
+    return `<span class="ai-category-badge" style="background:${colors.bg};color:${colors.text}">${escapeHtml(cat)}</span>`;
+}
+
+function importanceBar(score) {
+    const s = Math.max(1, Math.min(10, parseInt(score, 10) || 6));
+    const pct = s * 10;
+    let color = "#1f6feb";
+    if (s >= 8) color = "#16a34a";
+    if (s <= 4) color = "#f59e0b";
+    return `
+        <div class="ai-importance" title="Важность ${s}/10">
+            <div class="ai-importance-bar" style="width:${pct}%;background:${color}"></div>
+            <span>${s}/10</span>
+        </div>`;
+}
+
+function renderAiNews(newsList, { topic, saved, model } = {}) {
+    const container = document.getElementById("ai-news-list");
+
+    if (!newsList || newsList.length === 0) {
+        container.innerHTML = `<div class="ai-empty">По теме «${escapeHtml(topic || "—")}» ничего не найдено.</div>`;
+        return;
+    }
+
+    const headerHtml = `
+        <div class="ai-results-header">
+            <span class="ai-results-count">${newsList.length} новостей</span>
+            ${saved > 0 ? `<span class="ai-saved-badge">+${saved} сохранено в БД</span>` : ""}
+            <span class="ai-model-tag">${escapeHtml(model || "Gemini")}</span>
+        </div>`;
+
+    const cardsHtml = newsList.map((item) => {
+        const pubDate = item.published_at
+            ? (() => { try { return new Date(item.published_at).toLocaleString("ru-RU"); } catch { return item.published_at; } })()
+            : "";
+
+        return `
+        <article class="ai-news-card">
+            <div class="ai-news-card-top">
+                ${categoryBadge(item.category)}
+                ${importanceBar(item.importance_score)}
+            </div>
+            <h3 class="ai-news-title">${escapeHtml(item.title || "Без заголовка")}</h3>
+            <p class="ai-news-summary">${escapeHtml(item.summary || "")}</p>
+            <div class="ai-news-meta">
+                ${item.source ? `<span class="ai-source">📰 ${escapeHtml(item.source)}</span>` : ""}
+                ${pubDate ? `<span class="ai-date">🕐 ${pubDate}</span>` : ""}
+            </div>
+            ${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" class="ai-source-link">Открыть источник →</a>` : ""}
+        </article>`;
+    }).join("");
+
+    container.innerHTML = headerHtml + `<div class="ai-cards-grid">${cardsHtml}</div>`;
+}
+
+async function fetchAiNews() {
+    const topicInput = document.getElementById("ai-news-topic");
+    const topic = (topicInput?.value || "").trim();
+    const btn = document.getElementById("ai-news-btn");
+    const statusEl = document.getElementById("ai-news-status");
+
+    // Показываем статус загрузки
+    statusEl.style.display = "flex";
+    statusEl.className = "ai-status loading";
+    statusEl.innerHTML = `
+        <div class="ai-spinner"></div>
+        <span>Gemini 2.0 ищет новости${topic ? ` по теме «${escapeHtml(topic)}»` : ""}…</span>`;
+
+    document.getElementById("ai-news-list").innerHTML = "";
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Загрузка…";
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/ai-news`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ topic: topic || "новости" }),
+        });
+        const data = await handleApiResponse(response);
+
+        statusEl.className = "ai-status done";
+        statusEl.innerHTML = `✦ Готово: ${data.total} новостей, ${data.saved} новых сохранено в базу`;
+
+        renderAiNews(data.news, {
+            topic: data.topic,
+            saved: data.saved,
+            model: data.model,
+        });
+
+        showStatus(`AI нашёл ${data.total} новостей, ${data.saved} новых добавлено в БД.`, "ok");
+    } catch (error) {
+        statusEl.className = "ai-status error";
+        statusEl.innerHTML = `⚠ ${escapeHtml(error.message)}`;
+        document.getElementById("ai-news-list").innerHTML = "";
+        showStatus(error.message, "error");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = "Найти новости";
+        }
+    }
+}
+
 function escapeHtml(text) {
     const div = document.createElement("div");
     div.textContent = text;

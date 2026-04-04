@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# IDO SKILLS News — build & start script
+# Usage:
+#   bash ./setup.sh build       — create venv, install deps
+#   bash ./setup.sh start       — start Flask/Gunicorn web service
+#   bash ./setup.sh start-bot   — start Telegram bot worker
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,24 +16,21 @@ log() {
 }
 
 detect_python() {
-  if command -v python3 >/dev/null 2>&1; then
-    echo "python3"
-    return
-  fi
-
-  if command -v python >/dev/null 2>&1; then
-    echo "python"
-    return
-  fi
-
-  log "Python 3 is required to deploy this project."
+  for bin in python3 python python3.12 python3.11 python3.10; do
+    if command -v "$bin" >/dev/null 2>&1; then
+      echo "$bin"
+      return
+    fi
+  done
+  log "ERROR: Python 3.10+ is required."
   exit 1
 }
 
 PYTHON_BIN="$(detect_python)"
 
 bootstrap() {
-  log "Preparing virtual environment"
+  log "Python: $($PYTHON_BIN --version)"
+  log "Preparing virtual environment at $VENV_DIR"
 
   if [[ ! -d "$VENV_DIR" ]]; then
     "$PYTHON_BIN" -m venv "$VENV_DIR"
@@ -37,53 +39,95 @@ bootstrap() {
   # shellcheck disable=SC1091
   source "$VENV_DIR/bin/activate"
 
-  python -m pip install --upgrade pip setuptools wheel
-  python -m pip install -r "$BACKEND_DIR/requirements.txt"
+  pip install --upgrade pip setuptools wheel --quiet
+  pip install -r "$BACKEND_DIR/requirements.txt" --quiet
 
-  mkdir -p "$BACKEND_DIR/instance" "$BACKEND_DIR/logs" "$ROOT_DIR/instance" "$ROOT_DIR/logs"
+  # Create required directories
+  mkdir -p \
+    "$BACKEND_DIR/instance" \
+    "$BACKEND_DIR/logs" \
+    "$ROOT_DIR/instance" \
+    "$ROOT_DIR/logs"
+
+  log "Build complete."
 }
 
 activate_venv() {
-  if [[ ! -f "$VENV_DIR/bin/activate" ]]; then
+  if [[ -f "$VENV_DIR/bin/activate" ]]; then
+    # shellcheck disable=SC1091
+    source "$VENV_DIR/bin/activate"
+  else
+    log "venv not found — running bootstrap first"
     bootstrap
-    return
   fi
+}
 
-  # shellcheck disable=SC1091
-  source "$VENV_DIR/bin/activate"
+# Export all runtime env vars with safe defaults
+export_env() {
+  export PORT="${PORT:-5000}"
+  export BACKEND_PORT="${BACKEND_PORT:-$PORT}"
+  export DEBUG="${DEBUG:-false}"
+  export PYTHONUNBUFFERED=1
+  export PYTHONPATH="$BACKEND_DIR${PYTHONPATH:+:$PYTHONPATH}"
+
+  # Database
+  export DATABASE_URL="${DATABASE_URL:-sqlite:///database.db}"
+  export SECRET_KEY="${SECRET_KEY:-change-this-in-production}"
+  export AUTH_TOKEN_SALT="${AUTH_TOKEN_SALT:-ido-skills-auth}"
+  export AUTH_TOKEN_MAX_AGE="${AUTH_TOKEN_MAX_AGE:-604800}"
+
+  # AI / OpenRouter (Gemini 2.0)
+  export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
+  export OPENROUTER_BASE_URL="${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
+  export OPENROUTER_MODEL="${OPENROUTER_MODEL:-google/gemini-2.0-flash-001}"
+  export TAVILY_API_KEY="${TAVILY_API_KEY:-}"
+
+  # App metadata
+  export APP_HTTP_TITLE="${APP_HTTP_TITLE:-IDO-SKILLS-News}"
+  export APP_SITE_URL="${APP_SITE_URL:-https://idoskillsnews.local}"
+  export CORS_ORIGINS="${CORS_ORIGINS:-*}"
+  export NEWS_THRESHOLD="${NEWS_THRESHOLD:-6}"
+
+  # Telegram (optional)
+  export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+  export TELEGRAM_BOT_NAME="${TELEGRAM_BOT_NAME:-IDO SKILLS News Bot}"
+  export TELEGRAM_BOT_TIMEOUT="${TELEGRAM_BOT_TIMEOUT:-30}"
+  export BACKEND_PUBLIC_URL="${BACKEND_PUBLIC_URL:-}"
 }
 
 start_app() {
   activate_venv
-
-  export PORT="${PORT:-5000}"
-  export BACKEND_PORT="${BACKEND_PORT:-$PORT}"
-  export DEBUG="${DEBUG:-false}"
-  export SECRET_KEY="${SECRET_KEY:-change-this-in-production}"
-  export DATABASE_URL="${DATABASE_URL:-sqlite:///database.db}"
-  export PYTHONUNBUFFERED=1
-  export PYTHONPATH="$BACKEND_DIR${PYTHONPATH:+:$PYTHONPATH}"
+  export_env
 
   cd "$BACKEND_DIR"
 
-  log "Starting Railway web service on 0.0.0.0:${PORT}"
+  # Number of gunicorn workers — Railway recommends 2–4
+  WORKERS="${GUNICORN_WORKERS:-2}"
+  THREADS="${GUNICORN_THREADS:-4}"
+  # AI news endpoint can take up to 50 s (Gemini + external RSS fetch)
+  TIMEOUT="${GUNICORN_TIMEOUT:-120}"
+
+  log "Starting web service on 0.0.0.0:${PORT} (workers=${WORKERS}, threads=${THREADS}, timeout=${TIMEOUT}s)"
+
   exec gunicorn \
     --bind "0.0.0.0:${PORT}" \
-    --workers "${GUNICORN_WORKERS:-2}" \
-    --threads "${GUNICORN_THREADS:-4}" \
-    --timeout "${GUNICORN_TIMEOUT:-120}" \
+    --workers "$WORKERS" \
+    --threads "$THREADS" \
+    --timeout "$TIMEOUT" \
+    --keep-alive 5 \
+    --access-logfile - \
+    --error-logfile - \
+    --log-level info \
     app:app
 }
 
 start_bot() {
   activate_venv
-
-  export PYTHONUNBUFFERED=1
-  export PYTHONPATH="$BACKEND_DIR${PYTHONPATH:+:$PYTHONPATH}"
+  export_env
 
   cd "$BACKEND_DIR"
 
-  log "Starting Railway bot worker"
+  log "Starting Telegram bot worker"
   exec python telegram_bot.py
 }
 

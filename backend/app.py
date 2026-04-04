@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config import config
 from database import News, User, UserNews, db, init_db, normalize_interests
+from services.ai_news_service import AiNewsService
 from services.assistant_service import AssistantService
 from services.llm_service import LLMService
 from services.news_fetcher import NewsFetcher
@@ -67,6 +68,7 @@ llm_service = LLMService()
 news_fetcher = NewsFetcher()
 summarizer = Summarizer()
 assistant_service = AssistantService()
+ai_news_service = AiNewsService()
 mock_llm = MockLLM()
 serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"], salt=config.AUTH_TOKEN_SALT)
 
@@ -856,6 +858,44 @@ def get_all_news():
             "items": serialize_news_list(pagination.items),
             "total": pagination.total,
             "pages": pagination.pages,
+        }
+    )
+
+
+@app.route("/api/ai-news", methods=["POST"])
+def ai_news_chat():
+    """
+    Вкладка «AI Новости»: Gemini 2.0 ищет свежие новости по теме,
+    автоматически присваивает категории и сохраняет в общую БД.
+
+    Body (JSON, все поля опциональны):
+        topic  — тема поиска (str, default "новости")
+
+    Response:
+        news   — список статей [{title, summary, url, source, category,
+                  importance_score, published_at}]
+        saved  — сколько новых записей добавлено в БД
+        total  — общее количество статей в ответе
+        topic  — тема запроса
+        model  — модель, которая обрабатывала
+    """
+    data = parse_json()
+    topic = str(data.get("topic") or "новости").strip() or "новости"
+
+    articles, error_msg = ai_news_service.fetch_and_process(topic)
+
+    if error_msg and not articles:
+        return json_error(error_msg, 503)
+
+    saved_count = ai_news_service.save_to_db(articles, db.session, News)
+
+    return jsonify(
+        {
+            "news": articles,
+            "saved": saved_count,
+            "total": len(articles),
+            "topic": topic,
+            "model": config.OPENROUTER_MODEL,
         }
     )
 

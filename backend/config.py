@@ -36,6 +36,7 @@ class Config:
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
     OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
     OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001").strip()
+    TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "").strip()
     APP_HTTP_TITLE = os.getenv("APP_HTTP_TITLE", "IDO-SKILLS-News").strip()
     APP_SITE_URL = os.getenv("APP_SITE_URL", "https://idoskillsnews.local").strip()
     TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
