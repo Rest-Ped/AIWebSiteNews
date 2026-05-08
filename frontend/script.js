@@ -1,28 +1,208 @@
-const API_BASE = window.location.protocol === "file:"
-    ? "http://localhost:5000/api"
-    : `${window.location.origin}/api`;
+function resolveApiBase() {
+    const localApiBase = "http://localhost:5000/api";
+    const { protocol, hostname, port, origin } = window.location;
+    const localHosts = new Set(["localhost", "127.0.0.1", "0.0.0.0", ""]);
+
+    if (protocol === "file:") {
+        return localApiBase;
+    }
+
+    if (localHosts.has(hostname) && port !== "5000") {
+        return localApiBase;
+    }
+
+    return `${origin}/api`;
+}
+
+const API_BASE = window.__API_BASE__ || resolveApiBase();
+
+function getReadableError(error) {
+    const message = error?.message || "Неизвестная ошибка";
+
+    if (message === "Failed to fetch" || message.includes("NetworkError")) {
+        return `Не удалось подключиться к API (${API_BASE}). Проверь, что backend запущен и доступен.`;
+    }
+
+    return message;
+}
+
+const INTEREST_OPTIONS = [
+    { value: "искусственный интеллект", label: "ИИ", hint: "модели, ассистенты", icon: "sparkles" },
+    { value: "технологии", label: "Технологии", hint: "железо и софт", icon: "cpu" },
+    { value: "стартапы", label: "Стартапы", hint: "новые продукты", icon: "rocket" },
+    { value: "бизнес", label: "Бизнес", hint: "рынки и компании", icon: "briefcase-business" },
+    { value: "безопасность", label: "Безопасность", hint: "киберриски", icon: "shield-check" },
+    { value: "наука", label: "Наука", hint: "исследования", icon: "atom" },
+    { value: "образование", label: "Образование", hint: "университеты", icon: "graduation-cap" },
+    { value: "экономика", label: "Экономика", hint: "деньги и тренды", icon: "chart-no-axes-combined" },
+    { value: "Россия", label: "Россия", hint: "локальная повестка", icon: "map" },
+    { value: "мир", label: "Мир", hint: "международное", icon: "globe-2" },
+    { value: "здоровье", label: "Здоровье", hint: "медицина", icon: "heart-pulse" },
+    { value: "культура", label: "Культура", hint: "люди и события", icon: "gallery-vertical-end" },
+];
+
+const SOURCE_OPTIONS = [
+    { value: "google-news", label: "Google News", hint: "общий поиск", icon: "G", tone: "#a6edf7" },
+    { value: "tass", label: "ТАСС", hint: "tass.ru", icon: "T", tone: "#b8d7ff" },
+    { value: "rbc", label: "РБК", hint: "rbc.ru", icon: "Р", tone: "#8ed7ff" },
+    { value: "kommersant", label: "Ъ", hint: "kommersant.ru", icon: "Ъ", tone: "#e7edf0" },
+    { value: "interfax", label: "Интерфакс", hint: "interfax.ru", icon: "I", tone: "#b7f5d0" },
+    { value: "ria", label: "РИА", hint: "ria.ru", icon: "R", tone: "#a6c7ff" },
+    { value: "vedomosti", label: "Ведомости", hint: "vedomosti.ru", icon: "В", tone: "#e0e5ea" },
+    { value: "habr", label: "Habr", hint: "habr.com", icon: "H", tone: "#a6edf7" },
+    { value: "vc", label: "VC", hint: "vc.ru", icon: "VC", tone: "#c0f0ff" },
+    { value: "techcrunch", label: "TechCrunch", hint: "techcrunch.com", icon: "TC", tone: "#9df7b4" },
+];
 
 let currentUser = null;
 let authToken = localStorage.getItem("authToken") || "";
+let selectedInterests = new Set(["искусственный интеллект", "технологии", "стартапы"]);
+let selectedSources = new Set(["google-news", "rbc", "habr"]);
+let statusTimer = null;
 
-function showTab(tabId, button) {
-    document.querySelectorAll(".tab-content").forEach((tab) => tab.classList.remove("active"));
-    document.querySelectorAll(".tab-btn").forEach((btn) => btn.classList.remove("active"));
-    document.getElementById(tabId).classList.add("active");
-    if (button) {
-        button.classList.add("active");
+function icon(name) {
+    return `<i data-lucide="${name}"></i>`;
+}
+
+function refreshIcons() {
+    if (window.lucide) {
+        window.lucide.createIcons();
     }
 }
 
-document.getElementById("settings-threshold")?.addEventListener("input", function updateThreshold() {
-    document.getElementById("threshold-value").textContent = this.value;
-});
+function toggleMenu(force) {
+    const shouldOpen = typeof force === "boolean" ? force : !document.body.classList.contains("menu-open");
+    document.body.classList.toggle("menu-open", shouldOpen);
+    document.querySelector(".menu-trigger")?.setAttribute("aria-expanded", String(shouldOpen));
+}
+
+function closeMenu() {
+    toggleMenu(false);
+}
+
+function switchView(viewId) {
+    document.querySelectorAll(".view").forEach((view) => view.classList.remove("active"));
+    document.querySelectorAll(".nav-button").forEach((btn) => btn.classList.remove("active"));
+
+    document.getElementById(viewId)?.classList.add("active");
+    const navButton = document.querySelector(`[data-view-button="${viewId}"]`);
+    navButton?.classList.add("active");
+    closeMenu();
+
+    if (window.location.hash !== `#${viewId}`) {
+        history.replaceState(null, "", `#${viewId}`);
+    }
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    refreshIcons();
+}
 
 function splitInterests(value) {
-    return value
+    return String(value || "")
         .split(",")
         .map((item) => item.trim())
         .filter(Boolean);
+}
+
+function syncInterestsField() {
+    const values = [...selectedInterests];
+    const field = document.getElementById("settings-interests");
+    const count = document.getElementById("interest-count");
+
+    if (field) {
+        field.value = values.join(", ");
+    }
+    if (count) {
+        count.textContent = String(values.length);
+    }
+}
+
+function syncSourceCount() {
+    const count = document.getElementById("source-count");
+    if (count) {
+        count.textContent = String(selectedSources.size);
+    }
+}
+
+function renderInterestPicker() {
+    const container = document.getElementById("interest-picker");
+    if (!container) {
+        return;
+    }
+
+    container.innerHTML = INTEREST_OPTIONS.map((item) => {
+        const active = selectedInterests.has(item.value);
+        return `
+            <button class="choice-option ${active ? "active" : ""}" type="button" onclick="toggleInterest('${escapeAttribute(item.value)}')">
+                ${icon(item.icon)}
+                <span>
+                    <strong>${escapeHtml(item.label)}</strong>
+                    <small>${escapeHtml(item.hint)}</small>
+                </span>
+                <span class="interest-check" aria-hidden="true"></span>
+            </button>
+        `;
+    }).join("");
+
+    syncInterestsField();
+    refreshIcons();
+}
+
+function renderSourcePicker() {
+    const container = document.getElementById("source-picker");
+    if (!container) {
+        return;
+    }
+
+    container.innerHTML = SOURCE_OPTIONS.map((item) => {
+        const active = selectedSources.has(item.value);
+        return `
+            <button class="choice-option source-option ${active ? "active" : ""}" type="button" onclick="toggleSource('${escapeAttribute(item.value)}')">
+                <span class="source-logo" style="--source-tone:${escapeAttribute(item.tone)}">${escapeHtml(item.icon)}</span>
+                <span>
+                    <strong>${escapeHtml(item.label)}</strong>
+                    <small>${escapeHtml(item.hint)}</small>
+                </span>
+                <span class="interest-check" aria-hidden="true"></span>
+            </button>
+        `;
+    }).join("");
+
+    syncSourceCount();
+    refreshIcons();
+}
+
+function hydrateInterests(values) {
+    selectedInterests = new Set(values.filter(Boolean));
+    renderInterestPicker();
+}
+
+function toggleInterest(value) {
+    if (selectedInterests.has(value)) {
+        selectedInterests.delete(value);
+    } else {
+        selectedInterests.add(value);
+    }
+    renderInterestPicker();
+}
+
+function toggleSource(value) {
+    if (selectedSources.has(value)) {
+        selectedSources.delete(value);
+    } else {
+        selectedSources.add(value);
+    }
+    renderSourcePicker();
+}
+
+function addCustomInterest() {
+    const input = document.getElementById("custom-interest");
+    const values = splitInterests(input?.value || "");
+    values.forEach((value) => selectedInterests.add(value));
+    if (input) {
+        input.value = "";
+    }
+    renderInterestPicker();
 }
 
 function getRegisterPayload() {
@@ -30,7 +210,7 @@ function getRegisterPayload() {
         login: document.getElementById("register-login").value.trim(),
         email: document.getElementById("register-email").value.trim(),
         password: document.getElementById("register-password").value,
-        interests: splitInterests(document.getElementById("settings-interests").value),
+        interests: [...selectedInterests],
         threshold: parseInt(document.getElementById("settings-threshold").value, 10),
     };
 }
@@ -44,24 +224,19 @@ function getLoginPayload() {
 
 function getSettingsPayload() {
     return {
-        interests: splitInterests(document.getElementById("settings-interests").value),
+        interests: [...selectedInterests],
         threshold: parseInt(document.getElementById("settings-threshold").value, 10),
     };
 }
 
 function getAuthHeaders() {
-    if (!authToken) {
-        return {};
-    }
-
-    return {
-        Authorization: `Bearer ${authToken}`,
-    };
+    return authToken ? { Authorization: `Bearer ${authToken}` } : {};
 }
 
 function ensureAuthorized() {
     if (!authToken || !currentUser) {
-        showStatus("Сначала выполните вход в аккаунт.", "error");
+        showStatus("Сначала войдите в аккаунт.", "error");
+        switchView("account");
         return false;
     }
     return true;
@@ -69,37 +244,44 @@ function ensureAuthorized() {
 
 function setSessionState(message, isActive) {
     const stateNode = document.getElementById("session-state");
+    if (!stateNode) {
+        return;
+    }
     stateNode.textContent = message;
-    stateNode.className = isActive ? "session-state active" : "session-state";
+    stateNode.className = isActive ? "session-pill active" : "session-pill";
 }
 
 function applyUserToUI(user) {
     currentUser = user;
     document.getElementById("register-login").value = user.login || "";
     document.getElementById("register-email").value = user.email || "";
-    document.getElementById("settings-interests").value = (user.interests || []).join(", ");
     document.getElementById("settings-threshold").value = user.news_threshold || 6;
     document.getElementById("threshold-value").textContent = user.news_threshold || 6;
     document.getElementById("login-identifier").value = user.login || "";
+    hydrateInterests(user.interests || []);
     renderUserCard();
-    setSessionState(`Вы вошли как ${user.login}`, true);
+    setSessionState(user.login ? `Вход: ${user.login}` : "Выполнен вход", true);
 }
 
 function renderUserCard() {
     const container = document.getElementById("user-info");
-    if (!currentUser) {
-        container.className = "account-card-body empty";
-        container.textContent = "Вы ещё не вошли в аккаунт.";
+    if (!container) {
         return;
     }
 
-    container.className = "account-card-body";
+    if (!currentUser) {
+        container.className = "user-summary empty";
+        container.textContent = "Вы еще не вошли.";
+        return;
+    }
+
+    container.className = "user-summary";
     container.innerHTML = `
-        <div class="account-grid">
-            <div><span class="account-label">Логин</span><strong>${escapeHtml(currentUser.login || "-")}</strong></div>
-            <div><span class="account-label">Email</span><strong>${escapeHtml(currentUser.email || "-")}</strong></div>
-            <div><span class="account-label">Интересы</span><strong>${escapeHtml((currentUser.interests || []).join(", ") || "-")}</strong></div>
-            <div><span class="account-label">Порог</span><strong>${escapeHtml(String(currentUser.news_threshold || 6))}</strong></div>
+        <div class="user-grid">
+            <div><span>Логин</span><strong>${escapeHtml(currentUser.login || "-")}</strong></div>
+            <div><span>Email</span><strong>${escapeHtml(currentUser.email || "-")}</strong></div>
+            <div><span>Интересы</span><strong>${escapeHtml((currentUser.interests || []).join(", ") || "-")}</strong></div>
+            <div><span>Порог</span><strong>${escapeHtml(String(currentUser.news_threshold || 6))}</strong></div>
         </div>
     `;
 }
@@ -121,7 +303,7 @@ function clearSession() {
     document.getElementById("login-password").value = "";
     document.getElementById("register-password").value = "";
     renderUserCard();
-    setSessionState("Вы не вошли в аккаунт", false);
+    setSessionState("Не выполнен вход", false);
 }
 
 async function handleApiResponse(response) {
@@ -144,7 +326,7 @@ async function handleApiResponse(response) {
 async function registerUser() {
     const payload = getRegisterPayload();
     if (!payload.login || !payload.password) {
-        showStatus("Для регистрации заполните логин и пароль.", "error");
+        showStatus("Для регистрации нужен логин и пароль.", "error");
         return;
     }
 
@@ -156,7 +338,8 @@ async function registerUser() {
         });
         const data = await handleApiResponse(response);
         saveSession(data.token, data.user);
-        showStatus("Регистрация прошла успешно. Аккаунт создан и вход выполнен автоматически.", "ok");
+        showStatus("Аккаунт создан. Вход выполнен.", "ok");
+        switchView("search");
     } catch (error) {
         showStatus(error.message, "error");
     }
@@ -165,7 +348,7 @@ async function registerUser() {
 async function loginUser() {
     const payload = getLoginPayload();
     if (!payload.login || !payload.password) {
-        showStatus("Для входа укажите логин или email и пароль.", "error");
+        showStatus("Укажите логин или email и пароль.", "error");
         return;
     }
 
@@ -177,7 +360,8 @@ async function loginUser() {
         });
         const data = await handleApiResponse(response);
         saveSession(data.token, data.user);
-        showStatus("Вход выполнен успешно.", "ok");
+        showStatus("Вход выполнен.", "ok");
+        switchView("search");
     } catch (error) {
         showStatus(error.message, "error");
     }
@@ -193,7 +377,7 @@ async function fetchNews() {
         return;
     }
 
-    showStatus("Запрашиваю новости по интересам из базы...", "ok");
+    showStatus("Обновляю ленту.", "ok");
     try {
         const response = await fetch(`${API_BASE}/news/fetch`, {
             method: "POST",
@@ -204,37 +388,55 @@ async function fetchNews() {
             body: JSON.stringify({}),
         });
         const data = await handleApiResponse(response);
-        renderNews(data.news);
+        renderNews(data.news, document.getElementById("news-list"));
         showStatus(`Получено ${data.count} новостей.`, "ok");
     } catch (error) {
         showStatus(error.message, "error");
     }
 }
 
-function renderNews(newsList) {
-    const container = document.getElementById("news-list");
-    if (!newsList || newsList.length === 0) {
-        container.className = "news-list empty-state";
-        container.textContent = "Под ваши интересы новости пока не найдены.";
+function renderNews(newsList, container = document.getElementById("news-list")) {
+    if (!container) {
         return;
     }
 
-    container.className = "news-list";
-    container.innerHTML = newsList
-        .map((news) => `
-            <article class="news-item">
-                <h3>${escapeHtml(news.title)}</h3>
-                <div class="meta">
-                    <span>Источник: ${escapeHtml(news.source || "Не указан")}</span>
-                    <span>Категория: ${escapeHtml(news.category || "Общее")}</span>
-                    <span>Дата: ${news.published_at ? new Date(news.published_at).toLocaleString("ru-RU") : "Неизвестно"}</span>
-                    <span class="score">Важность: ${news.importance_score}/10</span>
+    if (!newsList || newsList.length === 0) {
+        container.className = "news-stream empty-state";
+        container.textContent = "По выбранным интересам пока ничего не найдено.";
+        return;
+    }
+
+    container.className = "news-stream";
+    container.innerHTML = newsList.map(newsRow).join("");
+    refreshIcons();
+}
+
+function newsRow(news) {
+    const published = news.published_at
+        ? new Date(news.published_at).toLocaleString("ru-RU")
+        : "Дата неизвестна";
+    const score = Math.max(1, Math.min(10, parseInt(news.importance_score, 10) || 6));
+    const sourceUrl = news.url ? `
+        <a href="${escapeAttribute(news.url)}" target="_blank" rel="noopener noreferrer" class="source-link">
+            <span>Источник</span>${icon("arrow-up-right")}
+        </a>
+    ` : "";
+
+    return `
+        <article class="news-row" data-reveal>
+            <div>
+                <h3>${escapeHtml(news.title || "Без заголовка")}</h3>
+                <p class="news-summary">${escapeHtml(news.summary || "")}</p>
+                <div class="news-meta">
+                    <span>${escapeHtml(news.source || "Источник не указан")}</span>
+                    <span>${escapeHtml(news.category || "Общее")}</span>
+                    <span>${published}</span>
+                    ${sourceUrl}
                 </div>
-                <p class="summary">${escapeHtml(news.summary || "")}</p>
-                <a href="${news.url}" target="_blank" rel="noopener noreferrer" class="btn-secondary inline-link">Открыть источник</a>
-            </article>
-        `)
-        .join("");
+            </div>
+            <div class="score-ring">${score}</div>
+        </article>
+    `;
 }
 
 async function getDigest() {
@@ -242,7 +444,7 @@ async function getDigest() {
         return;
     }
 
-    showStatus("Формирую сводку по новостям...", "ok");
+    showStatus("Собираю сводку.", "ok");
     try {
         const response = await fetch(`${API_BASE}/users/me/digest`, {
             method: "GET",
@@ -250,8 +452,8 @@ async function getDigest() {
         });
         const data = await handleApiResponse(response);
         const digestNode = document.getElementById("digest-content");
-        digestNode.className = "digest-content";
-        digestNode.textContent = data.digest || "Сводка пока пуста.";
+        digestNode.className = "digest-sheet";
+        digestNode.textContent = data.digest || "Сводка пока пустая.";
         showStatus(`Сводка готова. Использовано новостей: ${data.news_count}.`, "ok");
     } catch (error) {
         showStatus(error.message, "error");
@@ -264,6 +466,11 @@ async function saveSettings() {
     }
 
     const payload = getSettingsPayload();
+    if (!payload.interests.length) {
+        showStatus("Выберите хотя бы один интерес.", "error");
+        return;
+    }
+
     try {
         const response = await fetch(`${API_BASE}/users/me/interests`, {
             method: "PUT",
@@ -275,153 +482,113 @@ async function saveSettings() {
         });
         const data = await handleApiResponse(response);
         applyUserToUI(data.user);
-        showStatus("Интересы и порог сохранены в базе данных.", "ok");
+        showStatus("Интересы сохранены.", "ok");
     } catch (error) {
         showStatus(error.message, "error");
     }
 }
 
-// ===== TAB 5: AI НОВОСТИ =====
-
-const CATEGORY_COLORS = {
-    технологии:  { bg: "#e0f0ff", text: "#0a5fa8" },
-    политика:    { bg: "#fde8e8", text: "#9b2020" },
-    бизнес:      { bg: "#e6f9f0", text: "#1a6b45" },
-    спорт:       { bg: "#fff3e0", text: "#b35c00" },
-    наука:       { bg: "#ede8ff", text: "#4a1fa8" },
-    здоровье:    { bg: "#e8f8f0", text: "#147a50" },
-    развлечения: { bg: "#fde8fb", text: "#8b1a8b" },
-    мир:         { bg: "#e8f0fd", text: "#1a3fa8" },
-    образование: { bg: "#fdf3e8", text: "#8b5a00" },
-    безопасность:{ bg: "#fde8e8", text: "#8b1a1a" },
-    стартапы:    { bg: "#e8fdfc", text: "#0a6b65" },
-    экономика:   { bg: "#f0fde8", text: "#3a6b1a" },
-    общество:    { bg: "#f5f0e8", text: "#6b5a1a" },
-};
-
-function categoryBadge(category) {
-    const cat = (category || "общество").toLowerCase();
-    const colors = CATEGORY_COLORS[cat] || { bg: "#f0f0f0", text: "#555" };
-    return `<span class="ai-category-badge" style="background:${colors.bg};color:${colors.text}">${escapeHtml(cat)}</span>`;
-}
-
-function importanceBar(score) {
-    const s = Math.max(1, Math.min(10, parseInt(score, 10) || 6));
-    const pct = s * 10;
-    let color = "#1f6feb";
-    if (s >= 8) color = "#16a34a";
-    if (s <= 4) color = "#f59e0b";
-    return `
-        <div class="ai-importance" title="Важность ${s}/10">
-            <div class="ai-importance-bar" style="width:${pct}%;background:${color}"></div>
-            <span>${s}/10</span>
-        </div>`;
-}
-
 function renderAiNews(newsList, { topic, saved, model } = {}) {
     const container = document.getElementById("ai-news-list");
+    if (!container) {
+        return;
+    }
 
     if (!newsList || newsList.length === 0) {
-        container.innerHTML = `<div class="ai-empty">По теме «${escapeHtml(topic || "—")}» ничего не найдено.</div>`;
+        container.innerHTML = `<div class="empty-state">По теме «${escapeHtml(topic || "новости")}» ничего не найдено.</div>`;
         return;
     }
 
     const headerHtml = `
-        <div class="ai-results-header">
-            <span class="ai-results-count">${newsList.length} новостей</span>
-            ${saved > 0 ? `<span class="ai-saved-badge">+${saved} сохранено в БД</span>` : ""}
-            <span class="ai-model-tag">${escapeHtml(model || "Gemini")}</span>
-        </div>`;
+        <div class="ai-results-head" data-reveal>
+            <strong>${newsList.length} новостей</strong>
+            <span>${saved || 0} сохранено в базе</span>
+            <span>${escapeHtml(model || "AI")}</span>
+        </div>
+    `;
 
-    const cardsHtml = newsList.map((item) => {
-        const pubDate = item.published_at
-            ? (() => { try { return new Date(item.published_at).toLocaleString("ru-RU"); } catch { return item.published_at; } })()
-            : "";
-
-        return `
-        <article class="ai-news-card">
-            <div class="ai-news-card-top">
-                ${categoryBadge(item.category)}
-                ${importanceBar(item.importance_score)}
-            </div>
-            <h3 class="ai-news-title">${escapeHtml(item.title || "Без заголовка")}</h3>
-            <p class="ai-news-summary">${escapeHtml(item.summary || "")}</p>
-            <div class="ai-news-meta">
-                ${item.source ? `<span class="ai-source">📰 ${escapeHtml(item.source)}</span>` : ""}
-                ${pubDate ? `<span class="ai-date">🕐 ${pubDate}</span>` : ""}
-            </div>
-            ${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" class="ai-source-link">Открыть источник →</a>` : ""}
-        </article>`;
-    }).join("");
-
-    container.innerHTML = headerHtml + `<div class="ai-cards-grid">${cardsHtml}</div>`;
+    container.innerHTML = headerHtml + newsList.map(newsRow).join("");
+    initReveal();
+    refreshIcons();
 }
 
 async function fetchAiNews() {
     const topicInput = document.getElementById("ai-news-topic");
     const topic = (topicInput?.value || "").trim();
-    const btn = document.getElementById("ai-news-btn");
+    const button = document.getElementById("ai-news-btn");
     const statusEl = document.getElementById("ai-news-status");
 
-    // Показываем статус загрузки
-    statusEl.style.display = "flex";
-    statusEl.className = "ai-status loading";
-    statusEl.innerHTML = `
-        <div class="ai-spinner"></div>
-        <span>Gemini 2.0 ищет новости${topic ? ` по теме «${escapeHtml(topic)}»` : ""}…</span>`;
-
+    statusEl.hidden = false;
+    statusEl.className = "inline-status";
+    statusEl.textContent = topic ? `Ищу новости по теме «${topic}».` : "Ищу новости дня.";
     document.getElementById("ai-news-list").innerHTML = "";
-    if (btn) {
-        btn.disabled = true;
-        btn.textContent = "Загрузка…";
+
+    if (button) {
+        button.disabled = true;
     }
 
     try {
         const response = await fetch(`${API_BASE}/ai-news`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ topic: topic || "новости" }),
+            body: JSON.stringify({
+                topic: topic || "новости",
+                sources: [...selectedSources],
+            }),
         });
         const data = await handleApiResponse(response);
 
-        statusEl.className = "ai-status done";
-        statusEl.innerHTML = `✦ Готово: ${data.total} новостей, ${data.saved} новых сохранено в базу`;
-
+        statusEl.className = "inline-status ok";
+        statusEl.textContent = `Готово: ${data.total} новостей.`;
         renderAiNews(data.news, {
             topic: data.topic,
             saved: data.saved,
             model: data.model,
         });
-
-        showStatus(`AI нашёл ${data.total} новостей, ${data.saved} новых добавлено в БД.`, "ok");
+        showStatus(`Найдено ${data.total} новостей.`, "ok");
     } catch (error) {
-        statusEl.className = "ai-status error";
-        statusEl.innerHTML = `⚠ ${escapeHtml(error.message)}`;
-        document.getElementById("ai-news-list").innerHTML = "";
-        showStatus(error.message, "error");
+        const readableError = getReadableError(error);
+        statusEl.className = "inline-status error";
+        statusEl.textContent = readableError;
+        showStatus(readableError, "error");
     } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.textContent = "Найти новости";
+        if (button) {
+            button.disabled = false;
         }
     }
 }
 
 function escapeHtml(text) {
     const div = document.createElement("div");
-    div.textContent = text;
+    div.textContent = text ?? "";
     return div.innerHTML;
 }
 
-function showStatus(message, type) {
+function escapeAttribute(text) {
+    return String(text ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+
+function showStatus(message, type = "") {
     const statusEl = document.getElementById("status");
+    if (!statusEl) {
+        return;
+    }
+
+    window.clearTimeout(statusTimer);
     statusEl.textContent = message;
-    statusEl.className = `status ${type}`;
+    statusEl.className = `toast visible ${type}`;
+    statusTimer = window.setTimeout(() => {
+        statusEl.className = "toast";
+    }, 3600);
 }
 
 async function restoreSession() {
     renderUserCard();
-    setSessionState("Вы не вошли в аккаунт", false);
+    setSessionState("Не выполнен вход", false);
 
     if (!authToken) {
         return;
@@ -434,113 +601,75 @@ async function restoreSession() {
         });
         const data = await handleApiResponse(response);
         applyUserToUI(data.user);
-        showStatus("Сессия восстановлена.", "ok");
-    } catch (error) {
+    } catch {
         clearSession();
-        showStatus("Сохранённая сессия истекла. Выполните вход снова.", "error");
+        showStatus("Сессия истекла. Выполните вход снова.", "error");
     }
 }
 
-const canvas = document.getElementById("neural-bg");
-const ctx = canvas.getContext("2d");
-
-let nodes = [];
-const NODE_COUNT = 90;
-const MAX_DIST = 120;
-
-let mouse = { x: null, y: null };
-
-function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-}
-resize();
-window.addEventListener("resize", resize);
-
-window.addEventListener("mousemove", (e) => {
-    mouse.x = e.x;
-    mouse.y = e.y;
-});
-
-class Node {
-    constructor() {
-        this.x = Math.random() * canvas.width;
-        this.y = Math.random() * canvas.height;
-        this.vx = (Math.random() - 0.5) * 0.6;
-        this.vy = (Math.random() - 0.5) * 0.6;
+function initReveal() {
+    const nodes = document.querySelectorAll("[data-reveal]:not(.visible)");
+    if (!("IntersectionObserver" in window)) {
+        nodes.forEach((node) => node.classList.add("visible"));
+        return;
     }
 
-    move() {
-        this.x += this.vx;
-        this.y += this.vy;
-
-        if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
-        if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
-    }
-
-    draw() {
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(31,111,235,0.7)";
-        ctx.fill();
-    }
-}
-
-function init() {
-    nodes = [];
-    for (let i = 0; i < NODE_COUNT; i++) {
-        nodes.push(new Node());
-    }
-}
-init();
-
-function connect() {
-    for (let i = 0; i < nodes.length; i++) {
-        for (let j = i; j < nodes.length; j++) {
-            let dx = nodes[i].x - nodes[j].x;
-            let dy = nodes[i].y - nodes[j].y;
-            let dist = Math.sqrt(dx * dx + dy * dy);
-
-            if (dist < MAX_DIST) {
-                ctx.strokeStyle = `rgba(31,111,235,${1 - dist / MAX_DIST})`;
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(nodes[i].x, nodes[i].y);
-                ctx.lineTo(nodes[j].x, nodes[j].y);
-                ctx.stroke();
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add("visible");
+                observer.unobserve(entry.target);
             }
-        }
+        });
+    }, { threshold: 0.12 });
 
-        // связь с курсором
-        if (mouse.x) {
-            let dx = nodes[i].x - mouse.x;
-            let dy = nodes[i].y - mouse.y;
-            let dist = Math.sqrt(dx * dx + dy * dy);
-
-            if (dist < 160) {
-                ctx.strokeStyle = "rgba(255,140,0,0.6)";
-                ctx.beginPath();
-                ctx.moveTo(nodes[i].x, nodes[i].y);
-                ctx.lineTo(mouse.x, mouse.y);
-                ctx.stroke();
-            }
-        }
-    }
+    nodes.forEach((node) => observer.observe(node));
 }
 
-function animate() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+function boot() {
+    document.body.classList.add("ready");
+    renderInterestPicker();
+    renderSourcePicker();
+    refreshIcons();
+    initReveal();
+    restoreSession();
 
-    nodes.forEach((node) => {
-        node.move();
-        node.draw();
+    const initialView = window.location.hash.replace("#", "");
+    if (["search", "feed", "digest", "account"].includes(initialView)) {
+        history.replaceState(null, "", window.location.pathname + window.location.search);
+        switchView(initialView);
+        window.setTimeout(() => window.scrollTo({ top: 0, behavior: "auto" }), 80);
+    }
+
+    document.getElementById("settings-threshold")?.addEventListener("input", function updateThreshold() {
+        document.getElementById("threshold-value").textContent = this.value;
     });
 
-    connect();
+    document.getElementById("custom-interest")?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            addCustomInterest();
+        }
+    });
 
-    requestAnimationFrame(animate);
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closeMenu();
+        }
+    });
+
+    document.addEventListener("click", (event) => {
+        if (!document.body.classList.contains("menu-open")) {
+            return;
+        }
+
+        const target = event.target;
+        if (target.closest(".menu-panel") || target.closest(".menu-trigger")) {
+            return;
+        }
+
+        closeMenu();
+    });
 }
 
-animate();
-
-document.addEventListener("DOMContentLoaded", restoreSession);
+document.addEventListener("DOMContentLoaded", boot);

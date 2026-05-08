@@ -3,257 +3,163 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TGU</title>
+    <title>AI News</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <canvas id="neural-bg"></canvas>
-    <div class="container">
-        <header>
-            <p class="eyebrow">Специально для ТГУ</p>
-            <h1>Новости с ИИ</h1>
-            <p class="subtitle">
-                Понятный интерфейс для регистрации, входа, сохранения интересов и получения новостей через API.
-            </p>
-        </header>
+    <div class="primitive-bg" aria-hidden="true">
+        <span></span>
+        <span></span>
+    </div>
 
-        <div class="status-panel">
-            <div>
-                <div class="status-panel-label">Состояние</div>
-                <div id="session-state" class="session-state">Вы не вошли в аккаунт</div>
-            </div>
-            <div class="status-panel-hint">
-                Сначала зарегистрируйтесь или войдите, затем открывайте новости и сводку.
-            </div>
-        </div>
+    <header class="topbar">
+        <button class="brand" onclick="switchView('search')" aria-label="AI News">
+            <span class="brand-dot">AI</span>
+            <span>News</span>
+        </button>
 
-        <div class="tabs">
-            <button class="tab-btn active" onclick="showTab('profile', this)">1. Аккаунт</button>
-            <button class="tab-btn" onclick="showTab('settings', this)">2. Интересы</button>
-            <button class="tab-btn" onclick="showTab('news', this)">3. Новости</button>
-            <button class="tab-btn" onclick="showTab('digest', this)">4. Сводка</button>
-            <button class="tab-btn ai-tab-btn" onclick="showTab('ai-news', this)">5. AI Новости ✦</button>
-        </div>
+        <button class="menu-trigger" onclick="toggleMenu()" aria-expanded="false" aria-controls="menu-panel">
+            <span>Меню</span>
+            <i data-lucide="menu"></i>
+        </button>
+    </header>
 
-        <section id="profile" class="tab-content active">
-            <div class="panel-header">
-                <h2>Аккаунт</h2>
-                <p>
-                    Здесь всё разделено на два понятных действия: регистрация нового пользователя и вход в уже существующий аккаунт.
-                </p>
-            </div>
+    <nav id="menu-panel" class="menu-panel" aria-label="Меню">
+        <button class="nav-button active" data-view-button="search" onclick="switchView('search')">
+            <i data-lucide="search"></i><span>Поиск</span>
+        </button>
+        <button class="nav-button" data-view-button="feed" onclick="switchView('feed')">
+            <i data-lucide="newspaper"></i><span>Моя лента</span>
+        </button>
+        <button class="nav-button" data-view-button="digest" onclick="switchView('digest')">
+            <i data-lucide="list-checks"></i><span>Сводка</span>
+        </button>
+        <button class="nav-button" data-view-button="account" onclick="switchView('account')">
+            <i data-lucide="user-round"></i><span>Аккаунт</span>
+        </button>
+        <div id="session-state" class="session-pill">Не выполнен вход</div>
+    </nav>
 
-            <div class="steps-grid">
-                <article class="step-card">
-                    <div class="step-number">1</div>
-                    <h3>Создать аккаунт</h3>
-                    <p>Введите логин, email и пароль. После регистрации вы автоматически войдёте в систему.</p>
-                </article>
-                <article class="step-card">
-                    <div class="step-number">2</div>
-                    <h3>Сохранить интересы</h3>
-                    <p>На вкладке “Интересы” укажите темы, чтобы новости фильтровались под пользователя.</p>
-                </article>
-                <article class="step-card">
-                    <div class="step-number">3</div>
-                    <h3>Получить данные</h3>
-                    <p>Откройте вкладки “Новости” и “Сводка”, чтобы получить персональную подборку и итоговый дайджест.</p>
-                </article>
+    <main class="page-shell">
+        <section id="search" class="view active">
+            <div class="hero-line" data-reveal>
+                <p class="kicker">новости</p>
+                <h1>Что ищем?</h1>
             </div>
 
-            <div class="auth-layout">
-                <article class="form-card">
-                    <div class="card-header">
-                        <h3>Регистрация</h3>
-                        <p>Для нового пользователя</p>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="register-login">Логин</label>
-                        <input type="text" id="register-login" placeholder="Например: test_user">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="register-email">Email</label>
-                        <input type="email" id="register-email" placeholder="Например: user@mail.com">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="register-password">Пароль</label>
-                        <input type="password" id="register-password" placeholder="Минимум 6 символов">
-                    </div>
-
-                    <button class="btn-primary wide" onclick="registerUser()">Зарегистрироваться</button>
-                </article>
-
-                <article class="form-card">
-                    <div class="card-header">
-                        <h3>Вход</h3>
-                        <p>Для существующего пользователя</p>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="login-identifier">Логин или email</label>
-                        <input type="text" id="login-identifier" placeholder="Введите логин или email">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="login-password">Пароль</label>
-                        <input type="password" id="login-password" placeholder="Введите пароль">
-                    </div>
-
-                    <div class="action-row">
-                        <button class="btn-secondary wide" onclick="loginUser()">Войти</button>
-                        <button class="btn-ghost wide" onclick="logoutUser()">Выйти</button>
-                    </div>
-                </article>
+            <div class="search-area" data-reveal>
+                <input
+                    type="text"
+                    id="ai-news-topic"
+                    placeholder="ИИ, Красноярск, стартапы"
+                    onkeydown="if(event.key==='Enter') fetchAiNews()"
+                    autofocus
+                >
+                <button class="search-submit" onclick="fetchAiNews()" id="ai-news-btn" aria-label="Найти">
+                    <i data-lucide="arrow-up-right"></i>
+                </button>
             </div>
+            <div id="ai-news-status" class="inline-status" hidden></div>
 
-            <article class="account-card">
-                <div class="card-header">
-                    <h3>Текущий аккаунт</h3>
-                    <p>Здесь отображается пользователь, который сейчас авторизован.</p>
+            <section class="control-shelf" data-reveal>
+                <details class="choice-panel">
+                    <summary>
+                        <span>Темы</span>
+                        <strong id="interest-count">0</strong>
+                    </summary>
+                    <div id="interest-picker" class="choice-list" aria-label="Выберите темы"></div>
+                    <div class="custom-interest">
+                        <input id="custom-interest" type="text" placeholder="Своя тема">
+                        <button class="small-action" onclick="addCustomInterest()">
+                            <i data-lucide="plus"></i><span>Добавить</span>
+                        </button>
+                    </div>
+                    <textarea id="settings-interests" class="sr-only" aria-hidden="true"></textarea>
+                    <button class="text-action" onclick="saveSettings()">Сохранить темы</button>
+                </details>
+
+                <details class="choice-panel">
+                    <summary>
+                        <span>Источники</span>
+                        <strong id="source-count">0</strong>
+                    </summary>
+                    <div id="source-picker" class="choice-list source-list" aria-label="Выберите источники"></div>
+                </details>
+
+                <div class="importance-control">
+                    <div>
+                        <span>Важность</span>
+                        <strong id="threshold-value">6</strong>
+                    </div>
+                    <input type="range" id="settings-threshold" min="1" max="10" value="6">
                 </div>
-                <div id="user-info" class="account-card-body empty">
-                    Вы ещё не вошли в аккаунт.
-                </div>
-            </article>
+            </section>
+
+            <section id="ai-news-list" class="news-stream" aria-live="polite"></section>
         </section>
 
-        <section id="settings" class="tab-content">
-            <div class="panel-header">
-                <h2>Интересы и фильтр</h2>
-                <p>
-                    Эти данные сохраняются в базе и потом используются сайтом и ПК-приложением для выдачи результатов.
-                </p>
+        <section id="feed" class="view">
+            <div class="plain-head" data-reveal>
+                <p class="kicker">лента</p>
+                <h2>Мои новости</h2>
+                <button class="primary-action" onclick="fetchNews()">Обновить</button>
             </div>
-
-            <div class="settings-card">
-                <div class="form-group">
-                    <label for="settings-interests">Интересы</label>
-                    <textarea id="settings-interests" placeholder="технологии, безопасность, стартапы, программирование"></textarea>
-                    <div class="field-hint">
-                        Пишите через запятую. Например: <code>технологии, безопасность, стартапы</code>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label for="settings-threshold">Порог важности новостей</label>
-                    <div class="range-row">
-                        <input type="range" id="settings-threshold" min="1" max="10" value="6">
-                        <span id="threshold-value">6</span>
-                    </div>
-                    <div class="field-hint">
-                        Чем выше значение, тем строже фильтрация новостей.
-                    </div>
-                </div>
-
-                <button class="btn-primary" onclick="saveSettings()">Сохранить интересы и фильтр</button>
+            <div id="news-list" class="news-stream empty-state" data-reveal>
+                Войдите в аккаунт, чтобы открыть персональную ленту.
             </div>
         </section>
 
-        <section id="news" class="tab-content">
-            <div class="panel-header">
-                <h2>Новости</h2>
-                <p>
-                    После входа нажмите кнопку ниже. Сервис возьмёт интересы из БД и вернёт подходящую ленту.
-                </p>
-            </div>
-            <div class="action-row compact">
-                <button class="btn-primary" onclick="fetchNews()">Получить новости</button>
-            </div>
-            <div id="news-list" class="news-list empty-state">
-                Сначала войдите в аккаунт, затем запросите новости.
-            </div>
-        </section>
-
-        <section id="digest" class="tab-content">
-            <div class="panel-header">
+        <section id="digest" class="view">
+            <div class="plain-head" data-reveal>
+                <p class="kicker">коротко</p>
                 <h2>Сводка</h2>
-                <p>
-                    Здесь формируется итоговая сводка по новостям, подобранным под интересы пользователя.
-                </p>
+                <button class="primary-action" onclick="getDigest()">Собрать</button>
             </div>
-            <div class="action-row compact">
-                <button class="btn-primary" onclick="getDigest()">Получить сводку</button>
-            </div>
-            <div id="digest-content" class="digest-content empty-state">
-                Сначала войдите в аккаунт, затем запросите сводку.
+            <div id="digest-content" class="digest-sheet empty-state" data-reveal>
+                Войдите в аккаунт, чтобы собрать сводку.
             </div>
         </section>
 
-        <!-- ===== TAB 5: AI НОВОСТИ ===== -->
-        <section id="ai-news" class="tab-content">
-            <div class="panel-header">
-                <h2>AI Новости <span class="ai-badge">Gemini 2.0</span></h2>
-                <p>
-                    Введите тему — Gemini 2.0 найдёт свежие новости, напишет краткое изложение,
-                    автоматически определит категорию и сохранит всё в общую базу данных.
-                    Авторизация не нужна.
-                </p>
-            </div>
+        <section id="account" class="view">
+            <div class="account-plain" data-reveal>
+                <p class="kicker">аккаунт</p>
+                <h2>Вход</h2>
+                <p>Нужен только для сохранения тем и персональной ленты.</p>
+                <div id="user-info" class="user-summary empty">Вы еще не вошли.</div>
 
-            <div class="ai-search-card">
-                <div class="ai-search-row">
-                    <input
-                        type="text"
-                        id="ai-news-topic"
-                        class="ai-search-input"
-                        placeholder="Тема для поиска: например, искусственный интеллект, стартапы, Россия..."
-                        onkeydown="if(event.key==='Enter') fetchAiNews()"
-                    >
-                    <button class="btn-primary ai-search-btn" onclick="fetchAiNews()" id="ai-news-btn">
-                        Найти новости
-                    </button>
+                <div class="auth-flow">
+                    <form class="auth-form" onsubmit="event.preventDefault(); loginUser();">
+                        <h3>Войти</h3>
+                        <input type="text" id="login-identifier" placeholder="Логин или email" autocomplete="username">
+                        <input type="password" id="login-password" placeholder="Пароль" autocomplete="current-password">
+                        <button class="primary-action" type="submit">Войти</button>
+                    </form>
+
+                    <form class="auth-form" onsubmit="event.preventDefault(); registerUser();">
+                        <h3>Создать аккаунт</h3>
+                        <input type="text" id="register-login" placeholder="Логин" autocomplete="username">
+                        <input type="email" id="register-email" placeholder="Email" autocomplete="email">
+                        <input type="password" id="register-password" placeholder="Пароль" autocomplete="new-password">
+                        <button class="secondary-action" type="submit">Создать</button>
+                    </form>
                 </div>
-                <div class="ai-search-hint">
-                    По умолчанию ищет топ новостей дня. Данные приходят из Google News и Tavily,
-                    обрабатываются Gemini 2.0 Flash и сохраняются в базу для всех пользователей.
-                </div>
+
+                <button class="text-action" onclick="logoutUser()">Выйти</button>
             </div>
-
-            <div id="ai-news-status" class="ai-status" style="display:none"></div>
-
-            <div id="ai-news-list" class="ai-news-list"></div>
         </section>
 
-    <div class="download-cards">
-
-    <!-- Telegram -->
-    <a href="https://t.me/TGU_AINewsBot" target="_blank" class="download-card tg">
-        <svg viewBox="0 0 24 24" class="card-svg">
-            <path d="M9.04 15.47l-.38 5.35c.54 0 .77-.23 1.04-.5l2.5-2.4 5.18 3.8c.95.52 1.62.25 1.86-.88l3.37-15.8c.3-1.4-.5-1.95-1.43-1.6L1.3 9.6c-1.36.53-1.34 1.3-.23 1.64l5.9 1.84L19.6 6.6c.56-.34 1.07-.15.65.2"/>
-        </svg>
-        <h3 class="platform-title">Telegram</h3>
-        <p class="platform-sub">Открыть бота</p>
-    </a>
-
-    <!-- Windows -->
-    <div class="download-card win">
-        <a href="https://drive.google.com/file/d/1vshNhn7gNZYR-Wt52aOeUcO0oSUL1S4H/view?usp=drive_link" target="_blank" class="download-card win">
-            <svg viewBox="0 0 24 24" class="card-svg">
-               <path d="M3 5l8-1v9H3V5zm9-1l9-1v10h-9V4zM3 13h8v9l-8-1v-8zm9 0h9v10l-9-1v-9z"/>
-            </svg>
-            <h3 class="platform-title">Windows 10/11</h3>
-        </a>
-    </div>
-
-    <!-- Android -->
-    <div class="download-card android">
-        <svg viewBox="0 0 24 24" class="card-svg">
-            <path d="M17.6 9.48l1.43-2.48-.87-.5-1.45 2.5A9.9 9.9 0 0012 8c-1.66 0-3.22.4-4.55 1.1L6 6.6l-.87.5 1.43 2.48A9.96 9.96 0 002 18v2h20v-2c0-3.36-1.64-6.33-4.4-8.52z"/>
-        </svg>
-        <h3 class="platform-title">Android</h3>
-        <p class="platform-sub">Скоро доступно</p>
-    </div>
-
-    </div>
-
-        <footer>
-            <p>TGU 2026</p>
-            <p id="status" class="status"></p>
+        <footer class="download-line" data-reveal>
+            <a href="https://t.me/TGU_AINewsBot" target="_blank" rel="noopener noreferrer">Telegram</a>
+            <a href="https://drive.google.com/file/d/1vshNhn7gNZYR-Wt52aOeUcO0oSUL1S4H/view?usp=drive_link" target="_blank" rel="noopener noreferrer">Windows</a>
+            <span>Android скоро</span>
         </footer>
-    </div>
+    </main>
+
+    <div id="status" class="toast" role="status" aria-live="polite"></div>
 
     <script src="script.js"></script>
 </body>

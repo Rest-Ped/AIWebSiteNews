@@ -870,6 +870,8 @@ def ai_news_chat():
 
     Body (JSON, все поля опциональны):
         topic  — тема поиска (str, default "новости")
+        sources — список источников: google-news, tass, rbc, kommersant,
+                  interfax, ria, vedomosti, habr, vc, techcrunch
 
     Response:
         news   — список статей [{title, summary, url, source, category,
@@ -881,8 +883,9 @@ def ai_news_chat():
     """
     data = parse_json()
     topic = str(data.get("topic") or "новости").strip() or "новости"
+    sources = data.get("sources") or []
 
-    articles, error_msg = ai_news_service.fetch_and_process(topic)
+    articles, error_msg = ai_news_service.fetch_and_process(topic, sources=sources)
 
     if error_msg and not articles:
         return json_error(error_msg, 503)
@@ -895,6 +898,7 @@ def ai_news_chat():
             "saved": saved_count,
             "total": len(articles),
             "topic": topic,
+            "sources": sources,
             "model": config.OPENROUTER_MODEL,
         }
     )
