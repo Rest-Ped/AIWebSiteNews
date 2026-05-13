@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI News</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+    <link rel="stylesheet" href="style.css?v=20260512-normal-ui">
+</head>
+<body>
+    <div class="primitive-bg" aria-hidden="true">
+        <span></span>
+        <span></span>
+    </div>
+
+    <header class="topbar">
+        <button class="brand" onclick="switchView('search')" aria-label="AI News">
+            <span class="brand-dot">AI</span>
+            <span>News</span>
+        </button>
+
+        <button class="menu-trigger" onclick="toggleMenu()" aria-expanded="false" aria-controls="menu-panel">
+            <span>Меню</span>
+            <i data-lucide="menu"></i>
+        </button>
+    </header>
+
+    <nav id="menu-panel" class="menu-panel" aria-label="Меню">
+        <button class="nav-button active" data-view-button="search" onclick="switchView('search')">
+            <i data-lucide="search"></i><span>Поиск</span>
+        </button>
+        <button class="nav-button" data-view-button="feed" onclick="switchView('feed')">
+            <i data-lucide="newspaper"></i><span>Моя лента</span>
+        </button>
+        <button class="nav-button" data-view-button="digest" onclick="switchView('digest')">
+            <i data-lucide="list-checks"></i><span>Сводка</span>
+        </button>
+        <button class="nav-button" data-view-button="account" onclick="switchView('account')">
+            <i data-lucide="user-round"></i><span>Аккаунт</span>
+        </button>
+        <div id="session-state" class="session-pill">Не выполнен вход</div>
+    </nav>
+
+    <main class="page-shell">
+        <section id="search" class="view active">
+            <div class="hero-line" data-reveal>
+                <p class="kicker">новости</p>
+                <h1>Что ищем?</h1>
+            </div>
+
+            <div class="search-area" data-reveal>
+                <input
+                    type="text"
+                    id="ai-news-topic"
+                    placeholder="ИИ, Красноярск, стартапы"
+                    onkeydown="if(event.key==='Enter') fetchAiNews()"
+                    autofocus
+                >
+                <button class="search-submit" onclick="fetchAiNews()" id="ai-news-btn" aria-label="Найти">
+                    <i data-lucide="arrow-up-right"></i>
+                </button>
+            </div>
+            <div id="ai-news-status" class="inline-status" hidden></div>
+
+            <section class="control-shelf" data-reveal>
+                <details class="choice-panel">
+                    <summary>
+                        <span>Темы</span>
+                        <strong id="interest-count">0</strong>
+                    </summary>
+                    <div id="interest-picker" class="choice-list" aria-label="Выберите темы"></div>
+                    <div class="custom-interest">
+                        <input id="custom-interest" type="text" placeholder="Своя тема">
+                        <button class="small-action" onclick="addCustomInterest()">
+                            <i data-lucide="plus"></i><span>Добавить</span>
+                        </button>
+                    </div>
+                    <textarea id="settings-interests" class="sr-only" aria-hidden="true"></textarea>
+                    <button class="text-action" onclick="saveSettings()">Сохранить темы</button>
+                </details>
+
+                <details class="choice-panel">
+                    <summary>
+                        <span>Источники</span>
+                        <strong id="source-count">0</strong>
+                    </summary>
+                    <div id="source-picker" class="choice-list source-list" aria-label="Выберите источники"></div>
+                </details>
+
+                <div class="importance-control">
+                    <div>
+                        <span>Важность</span>
+                        <strong id="threshold-value">6</strong>
+                    </div>
+                    <input type="range" id="settings-threshold" min="1" max="10" value="6">
+                </div>
+            </section>
+
+            <section id="ai-news-list" class="news-stream" aria-live="polite"></section>
+        </section>
+
+        <section id="feed" class="view">
+            <div class="plain-head" data-reveal>
+                <p class="kicker">лента</p>
+                <h2>Мои новости</h2>
+                <button class="primary-action" onclick="fetchNews()">Обновить</button>
+            </div>
+            <div id="news-list" class="news-stream empty-state" data-reveal>
+                Войдите в аккаунт, чтобы открыть персональную ленту.
+            </div>
+        </section>
+
+        <section id="digest" class="view">
+            <div class="plain-head" data-reveal>
+                <p class="kicker">коротко</p>
+                <h2>Сводка</h2>
+                <button class="primary-action" onclick="getDigest()">Собрать</button>
+            </div>
+            <div id="digest-content" class="digest-sheet empty-state" data-reveal>
+                Войдите в аккаунт, чтобы собрать сводку.
+            </div>
+        </section>
+
+        <section id="account" class="view">
+            <div class="account-plain account-shell" data-reveal>
+                <p class="kicker">аккаунт</p>
+                <h2 id="account-title">Вход</h2>
+                <p id="account-subtitle">Нужен только для сохранения тем, порога важности и персональной мировой ленты.</p>
+
+                <div id="account-auth-state" class="account-state">
+                    <div class="auth-switch" role="tablist" aria-label="Выбор действия">
+                        <button id="auth-login-tab" class="active" type="button" onclick="setAuthMode('login')">Войти</button>
+                        <button id="auth-register-tab" type="button" onclick="setAuthMode('register')">Регистрация</button>
+                    </div>
+
+                    <form id="login-form" class="auth-form single-auth-form" onsubmit="event.preventDefault(); loginUser();">
+                        <input type="text" id="login-identifier" placeholder="Логин или email" autocomplete="username">
+                        <input type="password" id="login-password" placeholder="Пароль" autocomplete="current-password">
+                        <button class="primary-action wide-action" type="submit">Войти</button>
+                    </form>
+
+                    <form id="register-form" class="auth-form single-auth-form" onsubmit="event.preventDefault(); registerUser();" hidden>
+                        <input type="text" id="register-login" placeholder="Логин" autocomplete="username">
+                        <input type="email" id="register-email" placeholder="Email" autocomplete="email">
+                        <input type="password" id="register-password" placeholder="Пароль" autocomplete="new-password">
+                        <button class="primary-action wide-action" type="submit">Создать аккаунт</button>
+                    </form>
+                </div>
+
+                <div id="account-profile-state" class="account-state profile-state" hidden>
+                    <div id="user-info" class="user-summary"></div>
+
+                    <div class="profile-actions">
+                        <button class="primary-action" type="button" onclick="switchView('feed'); fetchNews();">
+                            <i data-lucide="newspaper"></i><span>Открыть ленту</span>
+                        </button>
+                        <button class="secondary-action" type="button" onclick="switchView('digest'); getDigest();">
+                            <i data-lucide="list-checks"></i><span>Собрать сводку</span>
+                        </button>
+                        <button class="logout-action" type="button" onclick="logoutUser()">
+                            <i data-lucide="log-out"></i><span>Выйти</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <footer class="download-line" data-reveal>
+            <a href="https://t.me/TGU_AINewsBot" target="_blank" rel="noopener noreferrer">Telegram</a>
+            <a href="https://drive.google.com/file/d/1vshNhn7gNZYR-Wt52aOeUcO0oSUL1S4H/view?usp=drive_link" target="_blank" rel="noopener noreferrer">Windows</a>
+            <span>Android скоро</span>
+        </footer>
+    </main>
+
+    <div id="status" class="toast" role="status" aria-live="polite"></div>
+
+    <script src="config.js?v=20260512-normal-ui"></script>
+    <script src="script.js?v=20260512-normal-ui"></script>
+</body>
+</html>
